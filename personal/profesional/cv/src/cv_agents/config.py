@@ -22,6 +22,7 @@ class CVConfig(BaseModel):
     vault_root: Path = Field(description="Absolute path to the local Obsidian vault")
     profile_path: str = Field(description="Markdown profile path relative to the vault")
     http_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    model: str = Field(default="gpt-4o-mini", min_length=1, description="Configured CV model name")
 
     @field_validator("vault_root", mode="before")
     @classmethod
@@ -85,6 +86,7 @@ def load_config(
             vault_root=settings.get("CV_VAULT_ROOT"),
             profile_path=settings.get("CV_PROFILE_PATH"),
             http_timeout_seconds=settings.get("CV_HTTP_TIMEOUT_SECONDS", 15.0),
+            model=settings.get("CV_MODEL", "gpt-4o-mini"),
         )
     except ValueError as exc:
         raise ConfigurationError(f"Invalid CV configuration: {exc}") from exc

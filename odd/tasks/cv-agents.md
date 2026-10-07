@@ -74,11 +74,11 @@ Fast gap analysis should not require running CV generation and document validati
 | --- | --- | --- | --- |
 | CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
-| CV-003 | pending | pending | pending |
+| CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | pending |
 | CV-004 | pending | pending | pending |
 | CV-005 | pending | pending | pending |
 | CV-006 | pending | pending | pending |
 
 ## Next step
 
-The first work unit is implemented and verified. Commit it as `feat(cv): bootstrap profile and job extraction foundations`, then implement CV-003: fast gap analysis, isolated application persistence, and CLI entry points.
+CV-003 is implemented and verified without creating a commit. The next work unit is CV-004: tailored CV content generation through `Template CV.docx`.
