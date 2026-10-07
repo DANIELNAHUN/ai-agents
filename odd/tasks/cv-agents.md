@@ -77,8 +77,8 @@ Fast gap analysis should not require running CV generation and document validati
 | CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | `4052161` |
 | CV-004 | complete | `uv run pytest` (33 passed); compileall; Ruff; template marker inspection | `b344a2d` |
 | CV-005 | complete | `uv run pytest` (33 passed); structural DOCX/PDF tests; LibreOffice mocked | `b344a2d` |
-| CV-006 | complete | `uv run pytest` (33 passed); compileall; Ruff; CLI help; README readback | pending |
+| CV-006 | complete | `uv run pytest` (33 passed); compileall; Ruff; CLI help; README readback | `973c87b` |
 
 ## Next step
 
-CV-001 through CV-006 are complete. CV-005 is validated through focused structural tests and mocked LibreOffice execution; a real conversion and human visual review remain an operational follow-up because LibreOffice is not available in the automated environment. CV-006 is documented in `personal/profesional/cv/README.md` and is ready for its work-unit commit.
+CV-001 through CV-006 are complete. CV-005 is validated through focused structural tests and mocked LibreOffice execution; a real conversion and human visual review remain an operational follow-up because LibreOffice is not available in the automated environment. CV-006 is documented in `personal/profesional/cv/README.md` and committed in `973c87b`.
