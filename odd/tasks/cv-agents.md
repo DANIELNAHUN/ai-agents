@@ -75,10 +75,10 @@ Fast gap analysis should not require running CV generation and document validati
 | CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | `4052161` |
-| CV-004 | complete | `uv run pytest` (33 passed); compileall; Ruff; template marker inspection | pending |
-| CV-005 | complete | `uv run pytest` (33 passed); structural DOCX/PDF tests; LibreOffice mocked | pending |
+| CV-004 | complete | `uv run pytest` (33 passed); compileall; Ruff; template marker inspection | `b344a2d` |
+| CV-005 | complete | `uv run pytest` (33 passed); structural DOCX/PDF tests; LibreOffice mocked | `b344a2d` |
 | CV-006 | pending | pending | pending |
 
 ## Next step
 
-CV-004 and CV-005 are implemented and verified in the current worktree. Commit them as one document-generation work unit, then implement CV-006: the final step-by-step README.
+CV-004 and CV-005 are implemented and verified in `b344a2d`. The next work unit is CV-006: the final step-by-step README.
