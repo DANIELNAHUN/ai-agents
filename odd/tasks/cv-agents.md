@@ -74,11 +74,11 @@ Fast gap analysis should not require running CV generation and document validati
 | --- | --- | --- | --- |
 | CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
-| CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | pending |
+| CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | `4052161` |
 | CV-004 | pending | pending | pending |
 | CV-005 | pending | pending | pending |
 | CV-006 | pending | pending | pending |
 
 ## Next step
 
-CV-003 is implemented and verified without creating a commit. The next work unit is CV-004: tailored CV content generation through `Template CV.docx`.
+CV-003 is implemented and verified in `4052161`. The next work unit is CV-004: tailored CV content generation through `Template CV.docx`.
