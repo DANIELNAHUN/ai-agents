@@ -72,8 +72,8 @@ Fast gap analysis should not require running CV generation and document validati
 
 | Task | Status | Verification | Commit |
 | --- | --- | --- | --- |
-| CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | pending |
-| CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | pending |
+| CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
+| CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-003 | pending | pending | pending |
 | CV-004 | pending | pending | pending |
 | CV-005 | pending | pending | pending |
