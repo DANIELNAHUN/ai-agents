@@ -40,7 +40,7 @@ Fast gap analysis should not require running CV generation and document validati
 - [x] CV-003 — Implement the fast gap-analysis flow, isolated application persistence, and CLI entry points.
 - [x] CV-004 — Implement tailored CV content generation and render it through `Template CV.docx`.
 - [x] CV-005 — Convert and validate DOCX/PDF outputs without corrupting the source template.
-- [ ] CV-006 — Complete README setup and step-by-step usage documentation.
+- [x] CV-006 — Complete README setup and step-by-step usage documentation.
 
 ## Authorized scope and route
 
@@ -77,8 +77,8 @@ Fast gap analysis should not require running CV generation and document validati
 | CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | `4052161` |
 | CV-004 | complete | `uv run pytest` (33 passed); compileall; Ruff; template marker inspection | `b344a2d` |
 | CV-005 | complete | `uv run pytest` (33 passed); structural DOCX/PDF tests; LibreOffice mocked | `b344a2d` |
-| CV-006 | pending | pending | pending |
+| CV-006 | complete | `uv run pytest` (33 passed); compileall; Ruff; CLI help; README readback | pending |
 
 ## Next step
 
-CV-004 and CV-005 are implemented and verified in `b344a2d`. The next work unit is CV-006: the final step-by-step README.
+CV-001 through CV-006 are complete. CV-005 is validated through focused structural tests and mocked LibreOffice execution; a real conversion and human visual review remain an operational follow-up because LibreOffice is not available in the automated environment. CV-006 is documented in `personal/profesional/cv/README.md` and is ready for its work-unit commit.
