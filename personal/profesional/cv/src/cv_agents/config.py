@@ -14,6 +14,12 @@ class ConfigurationError(ValueError):
     """Raised when the CV configuration is missing or unsafe to use."""
 
 
+DEFAULT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[2] / "files" / "templates" / "Template CV.docx"
+)
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "files" / "generated"
+
+
 class CVConfig(BaseModel):
     """Validated runtime configuration for the CV pipeline."""
 
@@ -23,6 +29,8 @@ class CVConfig(BaseModel):
     profile_path: str = Field(description="Markdown profile path relative to the vault")
     http_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     model: str = Field(default="gpt-4o-mini", min_length=1, description="Configured CV model name")
+    template_path: Path = Field(default=DEFAULT_TEMPLATE_PATH)
+    output_dir: Path = Field(default=DEFAULT_OUTPUT_DIR)
 
     @field_validator("vault_root", mode="before")
     @classmethod
@@ -55,11 +63,45 @@ class CVConfig(BaseModel):
             raise ValueError("CV_PROFILE_PATH must point to a Markdown file")
         return profile_path.as_posix()
 
+    @field_validator("template_path", mode="before")
+    @classmethod
+    def validate_template_path(cls, value: object) -> Path:
+        if value is None or not str(value).strip():
+            raise ValueError("CV_TEMPLATE_PATH is required")
+        template_path = Path(str(value)).expanduser()
+        if not template_path.is_absolute():
+            template_path = template_path.resolve()
+        if template_path.suffix.lower() != ".docx":
+            raise ValueError("CV_TEMPLATE_PATH must point to a DOCX file")
+        if template_path.name.lower() == "daniel_nahun_cv.docx":
+            raise ValueError(
+                "CV_TEMPLATE_PATH must point to the output template, not the reference CV"
+            )
+        return template_path.resolve()
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def validate_output_dir(cls, value: object) -> Path:
+        if value is None or not str(value).strip():
+            raise ValueError("CV_OUTPUT_DIR is required")
+        output_dir = Path(str(value)).expanduser()
+        if not output_dir.is_absolute():
+            output_dir = output_dir.resolve()
+        if output_dir.exists() and not output_dir.is_dir():
+            raise ValueError(f"CV_OUTPUT_DIR is not a directory: {output_dir}")
+        return output_dir.resolve()
+
     @property
     def profile_file(self) -> Path:
         """Return the configured profile path without requiring the file to exist."""
 
         return self.vault_root / self.profile_path
+
+    @property
+    def template_file(self) -> Path:
+        """Return the configured DOCX output template path."""
+
+        return self.template_path
 
 
 def load_config(
@@ -87,6 +129,8 @@ def load_config(
             profile_path=settings.get("CV_PROFILE_PATH"),
             http_timeout_seconds=settings.get("CV_HTTP_TIMEOUT_SECONDS", 15.0),
             model=settings.get("CV_MODEL", "gpt-4o-mini"),
+            template_path=settings.get("CV_TEMPLATE_PATH", DEFAULT_TEMPLATE_PATH),
+            output_dir=settings.get("CV_OUTPUT_DIR", DEFAULT_OUTPUT_DIR),
         )
     except ValueError as exc:
         raise ConfigurationError(f"Invalid CV configuration: {exc}") from exc

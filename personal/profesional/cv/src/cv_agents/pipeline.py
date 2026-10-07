@@ -1,17 +1,32 @@
-"""Fast, document-generation-independent CV analysis pipeline."""
+"""Fast CV analysis plus a separate, opt-in document-generation pipeline."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .analyzer import analyze_gaps, create_gap_analyzer
 from .config import CVConfig, load_config
+from .documents import PDFValidation, convert_docx_to_pdf
 from .extractor import create_job_requirements_extractor, extract_job_requirements
+from .generator import create_tailored_cv_generator, generate_tailored_cv_content
 from .job_description import HTTPClient, extract_job_description
+from .models import TailoredCVContent
 from .profile import load_profile
+from .rendering import render_tailored_cv
 from .repository import ApplicationRecord, SQLiteApplicationRepository
+
+
+@dataclass(frozen=True)
+class GeneratedDocumentPaths:
+    """Output paths and structured content for one generated application CV."""
+
+    application_id: str
+    docx_path: Path
+    pdf_path: Path | None
+    content: TailoredCVContent
 
 
 def run_fast_analysis(
@@ -96,3 +111,65 @@ def _build_model(
     if model_factory is None:
         raise ValueError("Pass model or model_factory when no analyzer/extractor is injected")
     return model_factory(model_name)
+
+
+def generate_application_documents(
+    record: ApplicationRecord,
+    *,
+    config: CVConfig | None = None,
+    template_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    model: Any | None = None,
+    model_factory: Callable[[str], Any] | None = None,
+    model_name: str | None = None,
+    generator_agent: Any | None = None,
+    generator_invoke: Callable[[dict[str, list[dict[str, str]]]], dict[str, Any]] | None = None,
+    convert_pdf: bool = True,
+    converter: Callable[..., PDFValidation] | None = None,
+    overwrite: bool = False,
+) -> GeneratedDocumentPaths:
+    """Generate DOCX/PDF outputs from one persisted application snapshot.
+
+    This is intentionally separate from :func:`run_fast_analysis`; callers opt
+    into document generation only after an application record already exists.
+    """
+
+    if not isinstance(record, ApplicationRecord):
+        raise TypeError("record must be an ApplicationRecord instance")
+    needs_config = config is None and (
+        template_path is None
+        or output_dir is None
+        or (
+            generator_agent is None
+            and generator_invoke is None
+            and model is None
+            and model_factory is None
+        )
+    )
+    runtime_config = config or (load_config() if needs_config else None)
+    selected_template = Path(template_path or runtime_config.template_file)
+    selected_output_dir = Path(output_dir or runtime_config.output_dir).expanduser().resolve()
+    if generator_agent is None and generator_invoke is None:
+        selected_model_name = model_name or (
+            runtime_config.model if runtime_config is not None else "gpt-4o-mini"
+        )
+        model = _build_model(model, model_factory, selected_model_name)
+        generator_agent = create_tailored_cv_generator(model)
+    content = generate_tailored_cv_content(
+        record.profile_snapshot,
+        record.requirements,
+        record.gap_analysis,
+        agent=generator_agent,
+        invoke=generator_invoke,
+    )
+    docx_path = selected_output_dir / f"{record.application_id}.docx"
+    render_tailored_cv(selected_template, docx_path, content, overwrite=overwrite)
+
+    pdf_path: Path | None = None
+    if convert_pdf:
+        pdf_result = (converter or convert_docx_to_pdf)(
+            docx_path,
+            pdf_path=selected_output_dir / f"{record.application_id}.pdf",
+        )
+        pdf_path = pdf_result.path
+    return GeneratedDocumentPaths(record.application_id, docx_path, pdf_path, content)

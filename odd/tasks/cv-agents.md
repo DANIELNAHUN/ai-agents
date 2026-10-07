@@ -37,9 +37,9 @@ Fast gap analysis should not require running CV generation and document validati
 
 - [x] CV-001 — Bootstrap the standalone CV package, configuration, profile loader, and test harness.
 - [x] CV-002 — Implement URL retrieval, HTML/text extraction, and structured job requirements.
-- [ ] CV-003 — Implement the fast gap-analysis flow, isolated application persistence, and CLI entry points.
-- [ ] CV-004 — Implement tailored CV content generation and render it through `Template CV.docx`.
-- [ ] CV-005 — Convert and validate DOCX/PDF outputs without corrupting the source template.
+- [x] CV-003 — Implement the fast gap-analysis flow, isolated application persistence, and CLI entry points.
+- [x] CV-004 — Implement tailored CV content generation and render it through `Template CV.docx`.
+- [x] CV-005 — Convert and validate DOCX/PDF outputs without corrupting the source template.
 - [ ] CV-006 — Complete README setup and step-by-step usage documentation.
 
 ## Authorized scope and route
@@ -75,10 +75,10 @@ Fast gap analysis should not require running CV generation and document validati
 | CV-001 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-002 | complete | `uv run pytest` (15 passed); compileall; Ruff | `d87fc45` |
 | CV-003 | complete | `uv run pytest` (23 passed); compileall; Ruff | `4052161` |
-| CV-004 | pending | pending | pending |
-| CV-005 | pending | pending | pending |
+| CV-004 | complete | `uv run pytest` (33 passed); compileall; Ruff; template marker inspection | pending |
+| CV-005 | complete | `uv run pytest` (33 passed); structural DOCX/PDF tests; LibreOffice mocked | pending |
 | CV-006 | pending | pending | pending |
 
 ## Next step
 
-CV-003 is implemented and verified in `4052161`. The next work unit is CV-004: tailored CV content generation through `Template CV.docx`.
+CV-004 and CV-005 are implemented and verified in the current worktree. Commit them as one document-generation work unit, then implement CV-006: the final step-by-step README.

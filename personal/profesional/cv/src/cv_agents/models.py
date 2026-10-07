@@ -87,3 +87,33 @@ class GapAnalysis(BaseModel):
         le=100,
         description="Overall fit score on a 0-100 scale; not a hiring probability",
     )
+
+
+class TailoredExperience(BaseModel):
+    """Factual content for one experience section in the output template."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, description="Evidence-backed role summary")
+    bullets: list[str] = Field(
+        default_factory=list,
+        description="Evidence-backed achievements or responsibilities for the role",
+    )
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Tools and technologies explicitly supported by the profile",
+    )
+
+
+class TailoredCVContent(BaseModel):
+    """Structured content mapped to the markers in ``Template CV.docx``.
+
+    The template owns the fixed identity, education, and language content. This
+    model only supplies the two variable experience sections represented by the
+    real template's marker contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    experience_fractalia: TailoredExperience
+    experience_cableclub: TailoredExperience

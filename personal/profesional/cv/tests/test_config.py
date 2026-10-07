@@ -32,3 +32,34 @@ def test_config_rejects_profile_paths_outside_vault(tmp_path: Path) -> None:
 def test_load_config_reports_missing_required_values(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError, match="CV_VAULT_ROOT is required"):
         load_config(tmp_path / ".env", environ={})
+
+
+def test_config_loads_local_template_and_output_paths(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    template = tmp_path / "template.docx"
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text(
+        f"CV_VAULT_ROOT={vault}\n"
+        "CV_PROFILE_PATH=profile.md\n"
+        f"CV_TEMPLATE_PATH={template}\n"
+        f"CV_OUTPUT_DIR={tmp_path / 'generated'}\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(dotenv_file, environ={})
+
+    assert config.template_file == template.resolve()
+    assert config.output_dir == (tmp_path / "generated").resolve()
+
+
+def test_config_rejects_reference_cv_as_output_template(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    with pytest.raises(ValueError, match="reference CV"):
+        CVConfig(
+            vault_root=vault,
+            profile_path="profile.md",
+            template_path=tmp_path / "Daniel_Nahun_CV.docx",
+        )
