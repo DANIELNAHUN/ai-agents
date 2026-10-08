@@ -60,7 +60,7 @@ The user wants to divide project payments by progress and modules instead of req
 
 - [x] QA-001 — Bootstrap the standalone quotation package, configuration, rates, structured state models, and test harness.
 - [x] QA-002 — Implement client intake, requirement inference, assumptions, and human approval boundaries.
-- [ ] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
+- [x] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
 - [ ] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
 - [ ] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
 - [ ] QA-006 — Implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
@@ -109,7 +109,7 @@ The user wants to divide project payments by progress and modules instead of req
 | --- | --- | --- | --- |
 | QA-001 | verified | `uv run pytest` (27 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `5a8391e` |
 | QA-002 | verified | `uv run pytest` (41 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `433306f` |
-| QA-003 | pending | — | — |
+| QA-003 | verified | `uv run pytest` (56 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native review preflight blocked by intended-untracked-selection schema | `d19a127` |
 | QA-004 | pending | — | — |
 | QA-005 | pending | — | — |
 | QA-006 | pending | — | — |
@@ -120,7 +120,7 @@ Before continuing, read this task card, reconcile its requirements with the curr
 
 ## Next step
 
-QA-003: implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
+QA-004: implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
 
 ## QA-001 Evidence
 
@@ -139,3 +139,12 @@ QA-003: implement planning, Backend, Frontend, and DevOps decomposition agents w
 - Writer verification: `uv run pytest` — 41 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check repeated the same three commands successfully.
 - `gentle-ai review mode status` reported receipt-driven development enabled globally. The committed QA-002 candidate (`--base-ref 5a8391e --committed-only`) was assessed as medium (7 paths, 494 changed lines), but native STATUS could not accept its provider-issued intended-untracked-selection contract. No review receipt or approval was produced; no GitHub operation was performed.
 - Work-unit commit: `433306f` (`feat(quotations): add intake and approval workflow`). Rollback boundary: revert `433306f` or remove the QA-002 inference/workflow files and their README/tests changes.
+
+## QA-003 Evidence
+
+- Added `TaskDecomposition` as a strict structured response model and a parameterized `decompose_category` boundary for Planning and coordination, Backend, Frontend, and DevOps. Provider output is rejected when malformed, contains unknown fields, or assigns a task to a different requested category.
+- Decomposition requires an approved draft before provider invocation, preserves the client/company, original request, and editable intake analysis inside untrusted-data delimiters, and never mutates or approves the input draft. Applying results through `revise_draft` intentionally resets approval for human re-review.
+- Preserved callable, model, and prebuilt-agent injection without implicit provider construction. Empty category output is valid and effort estimates remain deferred to QA-004.
+- Writer verification: focused decomposition tests — 15 passed; `uv run pytest` — 56 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator repeated all three commands successfully.
+- `gentle-ai review mode status` reported receipt-driven development enabled globally. Native STATUS required an intended-untracked selection for unrelated `personal/profesional/cv/files/` templates; the provider-issued selection payload was rejected as invalid, so no review receipt or approval was produced. No GitHub operation was performed.
+- Work-unit commit: `d19a127` (`feat(quotations): add task decomposition agents`). Rollback boundary: revert `d19a127` to remove only QA-003 decomposition behavior, tests, and package documentation.
