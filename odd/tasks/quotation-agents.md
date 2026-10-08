@@ -107,7 +107,7 @@ The user wants to divide project payments by progress and modules instead of req
 
 | Task | Status | Verification | Commit |
 | --- | --- | --- | --- |
-| QA-001 | verified; commit pending | `uv run pytest` (27 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | — |
+| QA-001 | verified | `uv run pytest` (27 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `5a8391e` |
 | QA-002 | pending | — | — |
 | QA-003 | pending | — | — |
 | QA-004 | pending | — | — |
@@ -129,4 +129,4 @@ QA-002: implement client intake, requirement inference, assumptions, and explici
 - Centralized PEN rates and commercial policy with `Decimal`, two-decimal `ROUND_HALF_UP` money rounding, three hours per day, floor/ceiling, payment threshold, advance rate, validity, and IGV exclusion. Pricing, payment schedules, document generation, and ideal-price formulas remain deferred.
 - Writer verification: `uv run pytest` — 27 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check: `uv run pytest` — 27 passed.
 - `gentle-ai review assess` classified the selected package files as `medium`. Native review STATUS could not accept the provider-issued intended-untracked selection, so no review receipt or approval was produced. No GitHub operation was performed.
-- Commit identity remains pending until the delivery slicing decision is resolved. Rollback boundary: remove `personal/profesional/quotations/` as one unit.
+- Work-unit commit: `5a8391e` (`feat(quotations): bootstrap standalone quotation domain`). Rollback boundary: remove `personal/profesional/quotations/` as one unit.
