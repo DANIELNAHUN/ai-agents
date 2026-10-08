@@ -71,12 +71,12 @@ provider in the workflow.
 
 | Task | Status | Verification | Commit |
 | --- | --- | --- | --- |
-| PC-001 | verified | `uv run pytest` (108 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed) | pending |
-| PC-002 | verified | Factory kwargs/no-network tests passed; parent spot-check `uv run pytest` (108 passed) | pending |
-| PC-003 | verified | README and `.env.example` reviewed; `git diff --check` passed | pending |
+| PC-001 | verified | `uv run pytest` (108 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed) | `b31f046` |
+| PC-002 | verified | Factory kwargs/no-network tests passed; parent spot-check `uv run pytest` (108 passed) | `b31f046` |
+| PC-003 | verified | README and `.env.example` reviewed; `git diff --check` passed | `b31f046` |
 
 ## Next step
 
-Implementation and verification are complete. Record the work-unit commit
-identity here and in the Engram mirror after committing the focused provider
-configuration change.
+Implementation, verification, and the work-unit commit are complete. The
+provider configuration change is isolated in `b31f046`; unrelated
+`personal/profesional/cv/files/` files remain untracked and untouched.
