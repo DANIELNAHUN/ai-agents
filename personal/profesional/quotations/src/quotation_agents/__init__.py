@@ -1,6 +1,12 @@
 """Standalone foundations for software quotation workflows."""
 
 from .config import ConfigurationError, QuotationConfig, load_config
+from .decomposition import (
+    DECOMPOSITION_SYSTEM_PROMPT,
+    DecompositionError,
+    create_decomposition_agent,
+    decompose_category,
+)
 from .inference import (
     INFERENCE_SYSTEM_PROMPT,
     InferenceError,
@@ -12,6 +18,7 @@ from .models import (
     QuotationDraft,
     QuotationTask,
     RequirementInference,
+    TaskDecomposition,
     WorkCategory,
 )
 from .provider import Invocation, ProviderError, resolve_invocation
@@ -37,6 +44,8 @@ __all__ = [
     "COMMERCIAL_POLICY",
     "CommercialPolicy",
     "ConfigurationError",
+    "DECOMPOSITION_SYSTEM_PROMPT",
+    "DecompositionError",
     "DraftApprovalRequiredError",
     "HOURLY_RATES",
     "INFERENCE_SYSTEM_PROMPT",
@@ -48,13 +57,16 @@ __all__ = [
     "QuotationTask",
     "QuotationWorkflowError",
     "RequirementInference",
+    "TaskDecomposition",
     "WorkCategory",
     "approve_draft",
     "create_pending_draft",
+    "create_decomposition_agent",
     "create_requirement_inference_agent",
     "edit_draft",
     "infer_requirements",
     "intake_draft",
+    "decompose_category",
     "load_config",
     "quantize_money",
     "require_approved_draft",

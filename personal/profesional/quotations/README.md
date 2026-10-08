@@ -4,7 +4,7 @@ An independent Python package for the software quotation workflow. QA-001
 provides validated configuration, commercial policy and rate constants,
 editable quotation state, and an injectable provider boundary. QA-002 adds
 provider-injected client intake, requirement inference, and explicit human
-approval boundaries.
+approval boundaries. QA-003 adds category-specific task decomposition.
 
 ## Quick path
 
@@ -114,8 +114,28 @@ is injected by the caller. The package never constructs a provider, reads
 credentials, makes network calls, or invokes a live model implicitly. Tests can
 use the same `invoke` contract with an offline callable or fake model.
 
+## QA-003 task decomposition
+
+`decompose_category` accepts only an approved `QuotationDraft` and decomposes
+one explicit `WorkCategory`: planning and coordination, backend, frontend, or
+DevOps. The provider must return a structured `TaskDecomposition` containing
+`QuotationTask` values. Unknown fields, malformed tasks, invalid categories,
+and tasks assigned to a different category are rejected; an empty task list is
+valid when that category has no applicable work.
+
+The decomposition request preserves the exact client/company and
+`original_request` values, plus the editable intake analysis. Source data is
+wrapped in explicit untrusted-input delimiters and is never treated as
+instructions. Use an injected callable, model, or prebuilt agent; no provider
+is constructed and no credentials or network calls are used implicitly.
+
+Decomposition does not mutate or approve the input draft. Apply returned tasks
+with `revise_draft(approved, tasks=result.tasks)` when appropriate; revision
+intentionally resets the draft to `ApprovalState.PENDING`, so it must be
+approved again before downstream proposal work.
+
 ## Current limits
 
-This package does not yet implement task decomposition, effort or price
-calculation, payment rules, persistence, CLI behavior, or DOCX/PDF generation.
+This package does not yet implement effort or price calculation, payment rules,
+persistence, CLI behavior, or DOCX/PDF generation.
 In particular, no ideal-price formula or contingency rule is defined here.

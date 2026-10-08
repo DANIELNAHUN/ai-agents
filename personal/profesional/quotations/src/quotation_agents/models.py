@@ -41,6 +41,14 @@ class QuotationTask(BaseModel):
         return value
 
 
+class TaskDecomposition(BaseModel):
+    """Structured task decomposition for one quotation work category."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[QuotationTask] = Field(default_factory=list)
+
+
 class RequirementInference(BaseModel):
     """Editable, provider-generated requirement analysis for a quotation draft."""
 
