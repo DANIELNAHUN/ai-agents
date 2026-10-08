@@ -212,6 +212,35 @@ LibreOffice. The default package does not invoke LibreOffice implicitly; when re
 is desired, `soffice` must be installed and available on `PATH`. `validate_docx` and
 `validate_pdf` provide dependency-free structural checks for generated outputs.
 
+## QA-006 review and operational workflow
+
+Use this order for an offline quotation run:
+
+1. Intake the client/company and original request with `intake_draft`.
+2. Review or edit inferred scope, assumptions, questions, risks, and tasks; approve the draft.
+3. Decompose approved work by category when needed, then revise and approve again.
+4. Calculate effort and pricing, optionally splitting tasks into modules.
+5. Run `review_quote(approved_draft, quote)` before document generation.
+6. Generate the DOCX (and optionally an injected PDF) only after the review gate passes.
+
+The review is deterministic and provider-free. It checks that the approved scope and quote
+fingerprint match, effort and category arithmetic reconcile, scope notes are nonblank, the
+selected band/floor/ceiling flags are coherent, and payment rules reconcile. `passed=False`
+means an error must be corrected. Warnings are returned separately; open questions make
+`ready_for_document=False`. A quote above S/ 10,000 can still pass arithmetic review, but
+`requires_manual_approval=True` and `ready_for_document=False`: retain the full amount,
+modularize delivery, and obtain the required human exception approval rather than clipping it.
+
+Representative focused verification from this directory:
+
+```bash
+uv run pytest tests/test_review.py tests/test_scenarios.py
+```
+
+The package has no CLI and does not make live provider calls in tests. PDF output remains
+optional: inject a converter for tests, or pass `libreoffice_pdf_converter` when `soffice` is
+installed and available on `PATH`. DOCX structural validation is always performed locally.
+
 ## Current limits
 
 This package does not implement persistence, CLI behavior, automatic approval, or provider

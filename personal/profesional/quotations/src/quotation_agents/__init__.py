@@ -55,6 +55,7 @@ from .rates import (
     CommercialPolicy,
     quantize_money,
 )
+from .review import QuotationReview, QuotationReviewError, ReviewIssue, review_quote
 from .workflow import (
     DraftApprovalRequiredError,
     QuotationWorkflowError,
@@ -96,6 +97,9 @@ __all__ = [
     "QuoteInputs",
     "QuoteModule",
     "QuoteResult",
+    "QuotationReview",
+    "QuotationReviewError",
+    "ReviewIssue",
     "TaskDecomposition",
     "WorkCategory",
     "approve_draft",
@@ -119,6 +123,7 @@ __all__ = [
     "require_approved_draft",
     "resolve_invocation",
     "revise_draft",
+    "review_quote",
     "split_modules",
     "validate_docx",
     "validate_pdf",
