@@ -63,7 +63,7 @@ The user wants to divide project payments by progress and modules instead of req
 - [x] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
 - [x] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
 - [x] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
-- [ ] QA-006 — Implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
+- [x] QA-006 — Implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
 
 ## Authorized scope and route
 
@@ -112,7 +112,7 @@ The user wants to divide project payments by progress and modules instead of req
 | QA-003 | verified | `uv run pytest` (56 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native review preflight blocked by intended-untracked-selection schema | `d19a127` |
 | QA-004 | verified | `uv run pytest` (69 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review approved with 3 non-blocking reliability findings | `0a8b65e` |
 | QA-005 | verified | `uv run pytest` (80 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); focused document/pricing tests (24 passed); native risk assessment: high; native review blocked by unrelated intended-untracked selection; independent verification passed | `fe2b9af`, `0d16ab8` |
-| QA-006 | pending | — | — |
+| QA-006 | verified | `uv run pytest` (96 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); focused review/document tests (26 passed); independent verification passed; native assessment high and review blocked by unrelated intended-untracked selection | `9f0797c`, `11916e7` |
 
 ## Resume protocol
 
@@ -120,7 +120,8 @@ Before continuing, read this task card, reconcile its requirements with the curr
 
 ## Next step
 
-QA-006: implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
+All planned quotation-agent tasks are complete. Follow-up work can add persistence, CLI behavior,
+or provider construction as a separately authorized feature.
 
 ## QA-001 Evidence
 
@@ -168,3 +169,13 @@ QA-006: implement quotation review, representative test scenarios, operational d
 - Writer verification: focused document/pricing tests — 24 passed; `uv run pytest` — 80 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check repeated the focused tests successfully. Independent verification passed with additional approval, fingerprint, filename, content, PDF-injection, and overwrite probes.
 - `gentle-ai review mode status` was enabled globally, but native review preflight required selection of unrelated untracked CV template files and could not produce a review receipt. Risk assessment classified the committed candidate as high because of the shell-process boundary. No GitHub operation was performed; unrelated untracked files were untouched.
 - Work-unit commits: `fe2b9af` (`feat(quotations): generate proposal documents`) and `0d16ab8` (`fix(quotations): bind proposal documents to quote drafts`). Rollback boundary: revert both commits to remove QA-005 document generation and its bounded integrity correction without touching prior quotation pricing or unrelated CV files. Real LibreOffice conversion remains an environment-dependent limitation because `soffice` is unavailable on PATH.
+
+## QA-006 Evidence
+
+- Added deterministic `review_quote` checks for approved-draft binding, scope notes, task/effort arithmetic, monetary cent precision, quote bands and limits, payment reconciliation, threshold milestone shape, and manual-approval warnings for amounts above S/10,000. Review remains provider-free and does not recalculate or mutate the quote.
+- Enforced the review gate in `generate_proposal_documents`: error findings prevent any output from being written, while over-ceiling quotes remain renderable as explicit modularization/manual-approval requests without clipping the amount.
+- Added representative scenarios for a WordPress adjustment, a below-S/700 quote, a medium modular quote, the S/700 threshold, an over-ceiling quote, and an end-to-end injected decomposition/pricing/review/DOCX path. README documents the operational order and review behavior.
+- Added regression coverage for malformed reconciled payment schedules, non-cent monetary values, and proposal generation from a quote with review errors. No live provider calls are used.
+- Writer verification: `uv run pytest` — 96 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed; focused review/document tests — 26 passed. Final independent verification — PASS; import smoke test and `git diff --check` — passed.
+- Receipt-driven development was enabled globally. Native status required selection of unrelated untracked CV templates; the committed candidate was assessed as `high` because of the existing shell-process boundary, but no native review receipt was produced. No GitHub operation was performed and `personal/profesional/cv/files/` remained untouched.
+- Work-unit commits: `9f0797c` (`feat(quotations): add quote review scenarios`) and `11916e7` (`fix(quotations): enforce review before proposals`). Rollback boundary: revert both commits to remove QA-006 review, scenarios, documentation, and bounded review-gate corrections without touching QA-001 through QA-005 behavior.
