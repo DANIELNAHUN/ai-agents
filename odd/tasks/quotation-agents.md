@@ -61,7 +61,7 @@ The user wants to divide project payments by progress and modules instead of req
 - [x] QA-001 — Bootstrap the standalone quotation package, configuration, rates, structured state models, and test harness.
 - [x] QA-002 — Implement client intake, requirement inference, assumptions, and human approval boundaries.
 - [x] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
-- [ ] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
+- [x] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
 - [ ] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
 - [ ] QA-006 — Implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
 
@@ -110,7 +110,7 @@ The user wants to divide project payments by progress and modules instead of req
 | QA-001 | verified | `uv run pytest` (27 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `5a8391e` |
 | QA-002 | verified | `uv run pytest` (41 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `433306f` |
 | QA-003 | verified | `uv run pytest` (56 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native review preflight blocked by intended-untracked-selection schema | `d19a127` |
-| QA-004 | pending | — | — |
+| QA-004 | verified | `uv run pytest` (69 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review approved with 3 non-blocking reliability findings | `0a8b65e` |
 | QA-005 | pending | — | — |
 | QA-006 | pending | — | — |
 
@@ -120,7 +120,7 @@ Before continuing, read this task card, reconcile its requirements with the curr
 
 ## Next step
 
-QA-004: implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
+QA-005: implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
 
 ## QA-001 Evidence
 
@@ -148,3 +148,13 @@ QA-004: implement effort estimation, PEN pricing, flexible floor/ceiling handlin
 - Writer verification: focused decomposition tests — 15 passed; `uv run pytest` — 56 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator repeated all three commands successfully.
 - `gentle-ai review mode status` reported receipt-driven development enabled globally. Native STATUS required an intended-untracked selection for unrelated `personal/profesional/cv/files/` templates; the provider-issued selection payload was rejected as invalid, so no review receipt or approval was produced. No GitHub operation was performed.
 - Work-unit commit: `d19a127` (`feat(quotations): add task decomposition agents`). Rollback boundary: revert `d19a127` to remove only QA-003 decomposition behavior, tests, and package documentation.
+
+## QA-004 Evidence
+
+- Added pure Decimal-based effort and quote calculations in `pricing.py`: category hours/subtotals, three-hour calendar days, editable complexity/dependency/risk factors, explicit contingency, minimum/ideal/maximum bands, and selected/custom amounts.
+- Applied the S/150 floor without discarding the raw amount; exact S/10,000 remains valid and values above the ceiling are preserved and flagged for modularization/manual approval instead of clipped. `CommercialPolicy` now rejects an invalid floor/ceiling ordering.
+- Added deterministic module partitioning and threshold payment schedules. Quotes below S/700 use one full-project payment; quotes at or above S/700 use a 40% advance plus module/progress payments with exact cent reconciliation.
+- Calculations require an approved draft, do not mutate draft state, and preserve existing provider and human-approval boundaries. README documents formulas, assumptions, exclusions from this task, and current limits.
+- Writer verification: focused pricing tests — 13 passed; `uv run pytest` — 69 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check: `uv run pytest` — 69 passed.
+- `gentle-ai review assess` classified the committed package candidate as `medium` (5 paths, 713 changed lines). Native review lineage `review-8fb116e8d93bf91e` was approved and acknowledged; authority was burned. Findings were non-blocking: non-positive task-hour boundary coverage, residual-cent allocation coverage, and rounded module percentage semantics. No correction was opened and no GitHub operation was performed.
+- Work-unit commit: `0a8b65e` (`feat(quotations): add pricing and payment calculations`). Rollback boundary: revert `0a8b65e` to remove QA-004 pricing, module, payment, tests, and documentation behavior without touching the unrelated CV files.
