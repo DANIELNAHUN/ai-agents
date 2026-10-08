@@ -59,7 +59,7 @@ The user wants to divide project payments by progress and modules instead of req
 ## Planned tasks
 
 - [x] QA-001 — Bootstrap the standalone quotation package, configuration, rates, structured state models, and test harness.
-- [ ] QA-002 — Implement client intake, requirement inference, assumptions, and human approval boundaries.
+- [x] QA-002 — Implement client intake, requirement inference, assumptions, and human approval boundaries.
 - [ ] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
 - [ ] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
 - [ ] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
@@ -108,7 +108,7 @@ The user wants to divide project payments by progress and modules instead of req
 | Task | Status | Verification | Commit |
 | --- | --- | --- | --- |
 | QA-001 | verified | `uv run pytest` (27 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `5a8391e` |
-| QA-002 | pending | — | — |
+| QA-002 | verified | `uv run pytest` (41 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `433306f` |
 | QA-003 | pending | — | — |
 | QA-004 | pending | — | — |
 | QA-005 | pending | — | — |
@@ -120,7 +120,7 @@ Before continuing, read this task card, reconcile its requirements with the curr
 
 ## Next step
 
-QA-002: implement client intake, requirement inference, assumptions, and explicit human approval boundaries on top of the standalone quotation domain.
+QA-003: implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
 
 ## QA-001 Evidence
 
@@ -130,3 +130,12 @@ QA-002: implement client intake, requirement inference, assumptions, and explici
 - Writer verification: `uv run pytest` — 27 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check: `uv run pytest` — 27 passed.
 - `gentle-ai review assess` classified the selected package files as `medium`. Native review STATUS could not accept the provider-issued intended-untracked selection, so no review receipt or approval was produced. No GitHub operation was performed.
 - Work-unit commit: `5a8391e` (`feat(quotations): bootstrap standalone quotation domain`). Rollback boundary: remove `personal/profesional/quotations/` as one unit.
+
+## QA-002 Evidence
+
+- Added `RequirementInference` as a provider response model that accepts only inferred scope, assumptions, questions, and risks; unknown fields such as approval state are rejected.
+- Added provider-injected LangChain inference in `inference.py`, with untrusted input delimiters, explicit structured-response validation, and no implicit provider construction or live calls.
+- Added `intake_draft`, explicit `approve_draft`, editable `revise_draft`, and `require_approved_draft` workflow boundaries. Intake is always pending, revision preserves the original request and resets approval, and downstream use rejects pending drafts.
+- Writer verification: `uv run pytest` — 41 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check repeated the same three commands successfully.
+- `gentle-ai review mode status` reported receipt-driven development enabled globally. The committed QA-002 candidate (`--base-ref 5a8391e --committed-only`) was assessed as medium (7 paths, 494 changed lines), but native STATUS could not accept its provider-issued intended-untracked-selection contract. No review receipt or approval was produced; no GitHub operation was performed.
+- Work-unit commit: `433306f` (`feat(quotations): add intake and approval workflow`). Rollback boundary: revert `433306f` or remove the QA-002 inference/workflow files and their README/tests changes.
