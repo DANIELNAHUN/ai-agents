@@ -167,3 +167,13 @@ def test_proposal_rejects_a_quote_without_a_source_association(tmp_path) -> None
 
     with pytest.raises(ProposalDocumentError, match="does not belong"):
         generate_proposal_documents(draft, quote, tmp_path)
+
+
+def test_proposal_rejects_quote_review_errors_before_writing(tmp_path) -> None:
+    draft = approved([task(WorkCategory.BACKEND, "Build API", "10")])
+    quote = calculate_quote(draft).model_copy(update={"raw_amount": Decimal("301.00")})
+
+    with pytest.raises(ProposalDocumentError, match="raw_amount_mismatch"):
+        generate_proposal_documents(draft, quote, tmp_path)
+
+    assert tuple(tmp_path.iterdir()) == ()

@@ -15,6 +15,7 @@ from xml.etree import ElementTree as ET
 
 from .models import QuotationDraft, QuotationTask, WorkCategory
 from .pricing import QuoteResult, _draft_fingerprint
+from .review import review_quote
 from .workflow import require_approved_draft
 
 Language = Literal["en", "es"]
@@ -434,6 +435,12 @@ def generate_proposal_documents(
         raise ProposalDocumentError("quote must be a deterministic QuoteResult")
     if getattr(quote, "source_draft_fingerprint", None) != _draft_fingerprint(approved_draft):
         raise ProposalDocumentError("quote does not belong to the approved draft")
+    review = review_quote(approved_draft, quote)
+    if not review.passed:
+        codes = ", ".join(issue.code for issue in review.errors)
+        raise ProposalDocumentError(
+            f"quotation review failed; correct error findings: {codes}"
+        )
     _language(language)
     output_path = Path(output_dir)
     docx_path, pdf_path = _safe_paths(output_path, filename, pdf_converter is not None)

@@ -221,13 +221,16 @@ Use this order for an offline quotation run:
 3. Decompose approved work by category when needed, then revise and approve again.
 4. Calculate effort and pricing, optionally splitting tasks into modules.
 5. Run `review_quote(approved_draft, quote)` before document generation.
-6. Generate the DOCX (and optionally an injected PDF) only after the review gate passes.
+6. Generate the DOCX (and optionally an injected PDF) only after the review gate passes;
+   `generate_proposal_documents` invokes the same review gate before writing output.
 
 The review is deterministic and provider-free. It checks that the approved scope and quote
 fingerprint match, effort and category arithmetic reconcile, scope notes are nonblank, the
 selected band/floor/ceiling flags are coherent, and payment rules reconcile. `passed=False`
-means an error must be corrected. Warnings are returned separately; open questions make
-`ready_for_document=False`. A quote above S/ 10,000 can still pass arithmetic review, but
+means an error must be corrected, and document generation rejects those error finding codes
+before creating files. Warnings are returned separately and remain explicit in the workflow and
+generated document; open questions make `ready_for_document=False`. A quote above S/ 10,000 can
+still pass arithmetic review and remain renderable as an approval request, but
 `requires_manual_approval=True` and `ready_for_document=False`: retain the full amount,
 modularize delivery, and obtain the required human exception approval rather than clipping it.
 

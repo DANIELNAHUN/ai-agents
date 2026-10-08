@@ -143,6 +143,54 @@ def _check_effort_and_amounts(
         _add_issue(issues, "invalid_selected_amount", "selected amount must be positive", "error")
 
 
+def _is_cent_value(value: object) -> bool:
+    if not isinstance(value, Decimal):
+        return False
+    try:
+        return value == quantize_money(value)
+    except (ArithmeticError, TypeError, ValueError):
+        return False
+
+
+def _check_monetary_precision(quote: QuoteResult, issues: list[ReviewIssue]) -> None:
+    invalid_paths: list[str] = []
+    quote_amounts = (
+        "raw_amount",
+        "minimum_amount",
+        "ideal_amount",
+        "maximum_amount",
+        "selected_amount",
+    )
+    for field_name in quote_amounts:
+        if not _is_cent_value(getattr(quote, field_name, None)):
+            invalid_paths.append(field_name)
+
+    effort = quote.effort
+    if not _is_cent_value(getattr(effort, "raw_amount", None)):
+        invalid_paths.append("effort.raw_amount")
+    for category, subtotal in getattr(effort, "category_subtotals", {}).items():
+        if not _is_cent_value(subtotal):
+            invalid_paths.append(f"effort.category_subtotals[{category}]")
+    for index, category in enumerate(getattr(effort, "categories", ())):
+        if not _is_cent_value(getattr(category, "subtotal", None)):
+            invalid_paths.append(f"effort.categories[{index}].subtotal")
+
+    schedule = quote.payment_schedule
+    for index, payment in enumerate(schedule.payments):
+        if not _is_cent_value(getattr(payment, "amount", None)):
+            invalid_paths.append(f"payment_schedule.payments[{index}].amount")
+    if not _is_cent_value(getattr(schedule, "total_amount", None)):
+        invalid_paths.append("payment_schedule.total_amount")
+
+    if invalid_paths:
+        _add_issue(
+            issues,
+            "money_precision",
+            "monetary values must use cent precision: " + ", ".join(invalid_paths),
+            "error",
+        )
+
+
 def _check_commercial_consistency(
     quote: QuoteResult,
     policy: CommercialPolicy,
@@ -266,6 +314,68 @@ def _check_payment_schedule(
             "error",
         )
 
+    if advance.module_name is not None:
+        _add_issue(
+            issues,
+            "payment_module_identity",
+            "advance payment must not identify a module",
+            "error",
+        )
+
+    for index, payment in enumerate(schedule.payments):
+        percentage = payment.percentage
+        if percentage is not None and (
+            not isinstance(percentage, Decimal) or percentage < 0 or percentage > 1
+        ):
+            _add_issue(
+                issues,
+                "payment_percentage_invalid",
+                f"payment {index} percentage must be between 0 and 1",
+                "error",
+            )
+
+    milestones = schedule.payments[1:]
+    completion_milestones = [
+        payment for payment in milestones if payment.label == "Project completion"
+    ]
+    if completion_milestones:
+        if len(milestones) != 1 or completion_milestones[0].module_name is not None:
+            _add_issue(
+                issues,
+                "payment_milestone_shape",
+                "threshold schedules must use either one project completion milestone "
+                "or module milestones",
+                "error",
+            )
+        return
+
+    module_names: set[str] = set()
+    for index, payment in enumerate(milestones, start=1):
+        module_name = payment.module_name
+        if not isinstance(module_name, str) or not module_name.strip():
+            _add_issue(
+                issues,
+                "payment_module_identity",
+                f"payment {index} must identify a nonblank module",
+                "error",
+            )
+            continue
+        if module_name in module_names:
+            _add_issue(
+                issues,
+                "payment_module_duplicate",
+                f"payment {index} repeats module {module_name!r}",
+                "error",
+            )
+        module_names.add(module_name)
+        if payment.label != module_name:
+            _add_issue(
+                issues,
+                "payment_label_mismatch",
+                f"payment {index} label must match module_name",
+                "error",
+            )
+
 
 def review_quote(
     draft: QuotationDraft,
@@ -283,6 +393,7 @@ def review_quote(
 
     issues: list[ReviewIssue] = []
     _check_scope(approved_draft, issues)
+    _check_monetary_precision(quote, issues)
     _check_effort_and_amounts(approved_draft, quote, policy, issues)
     ceiling_exceeded = _check_commercial_consistency(quote, policy, issues)
     _check_payment_schedule(quote, policy, issues)

@@ -5,10 +5,12 @@ import pytest
 from quotation_agents import (
     ApprovalState,
     DraftApprovalRequiredError,
+    Payment,
     QuotationDraft,
     QuotationReviewError,
     QuotationTask,
     QuoteInputs,
+    QuoteResult,
     WorkCategory,
     calculate_quote,
     review_quote,
@@ -94,3 +96,70 @@ def test_review_requires_manual_approval_but_preserves_an_over_ceiling_quote() -
     assert result.requires_manual_approval is True
     assert quote.selected_amount == Decimal("10000.01")
     assert any(issue.code == "manual_approval_required" for issue in result.warnings)
+
+
+def _threshold_quote() -> tuple[QuotationDraft, QuoteResult]:
+    draft = approved([task(WorkCategory.BACKEND, "Threshold endpoint", "1")])
+    quote = calculate_quote(draft, inputs=QuoteInputs(custom_amount=Decimal("700.00")))
+    return draft, quote
+
+
+@pytest.mark.parametrize(
+    ("milestones", "expected_code"),
+    [
+        ((Payment(label="Bogus", amount=Decimal("420.00")),), "payment_module_identity"),
+        (
+            (
+                Payment(label="Module A", module_name="Module A", amount=Decimal("210.00")),
+                Payment(label="Module A", module_name="Module A", amount=Decimal("210.00")),
+            ),
+            "payment_module_duplicate",
+        ),
+        (
+            (Payment(label="Module A", module_name="Module B", amount=Decimal("420.00")),),
+            "payment_label_mismatch",
+        ),
+        (
+            (Payment(label="Module A", module_name=" ", amount=Decimal("420.00")),),
+            "payment_module_identity",
+        ),
+        (
+            (
+                Payment(
+                    label="Project completion",
+                    module_name="Module A",
+                    amount=Decimal("420.00"),
+                ),
+            ),
+            "payment_milestone_shape",
+        ),
+        (
+            (
+                Payment(label="Project completion", amount=Decimal("210.00")),
+                Payment(label="Module A", module_name="Module A", amount=Decimal("210.00")),
+            ),
+            "payment_milestone_shape",
+        ),
+    ],
+)
+def test_review_rejects_reconciled_malformed_threshold_schedules(
+    milestones: tuple[Payment, ...], expected_code: str
+) -> None:
+    draft, quote = _threshold_quote()
+    schedule = quote.payment_schedule.model_copy(
+        update={"payments": (quote.payment_schedule.payments[0], *milestones)}
+    )
+    result = review_quote(draft, quote.model_copy(update={"payment_schedule": schedule}))
+
+    assert result.passed is False
+    assert expected_code in {issue.code for issue in result.errors}
+
+
+def test_review_rejects_non_cent_monetary_values() -> None:
+    draft, quote = _threshold_quote()
+    mutated = quote.model_copy(update={"selected_amount": Decimal("700.001")})
+
+    result = review_quote(draft, mutated)
+
+    assert result.passed is False
+    assert "money_precision" in {issue.code for issue in result.errors}
