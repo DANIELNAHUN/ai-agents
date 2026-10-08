@@ -1,6 +1,12 @@
 """Standalone foundations for software quotation workflows."""
 
-from .config import ConfigurationError, QuotationConfig, load_config
+from .config import (
+    OLLAMA_DEFAULT_BASE_URL,
+    SUPPORTED_PROVIDERS,
+    ConfigurationError,
+    QuotationConfig,
+    load_config,
+)
 from .decomposition import (
     DECOMPOSITION_SYSTEM_PROMPT,
     DecompositionError,
@@ -48,7 +54,7 @@ from .pricing import (
     partition_tasks,
     split_modules,
 )
-from .provider import Invocation, ProviderError, resolve_invocation
+from .provider import Invocation, ProviderError, create_configured_model, resolve_invocation
 from .rates import (
     COMMERCIAL_POLICY,
     HOURLY_RATES,
@@ -73,6 +79,7 @@ __all__ = [
     "CategoryEstimate",
     "CommercialPolicy",
     "ConfigurationError",
+    "OLLAMA_DEFAULT_BASE_URL",
     "DECOMPOSITION_SYSTEM_PROMPT",
     "DecompositionError",
     "DocumentValidation",
@@ -86,6 +93,7 @@ __all__ = [
     "Payment",
     "PaymentSchedule",
     "ProviderError",
+    "SUPPORTED_PROVIDERS",
     "ProposalDocumentError",
     "ProposalDocuments",
     "QuotationConfig",
@@ -108,6 +116,7 @@ __all__ = [
     "calculate_quote",
     "create_pending_draft",
     "create_decomposition_agent",
+    "create_configured_model",
     "create_payment_schedule",
     "create_requirement_inference_agent",
     "edit_draft",

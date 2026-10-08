@@ -28,11 +28,35 @@ environment mapping for tests.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `QUOTATION_PROVIDER` | `openai` | OpenAI-compatible provider: `openai`, `ollama`, `omniroute`, or `freellm` |
 | `QUOTATION_MODEL` | `gpt-4o-mini` | Configured model name |
+| `QUOTATION_BASE_URL` | Provider-dependent | HTTP(S) endpoint; optional for OpenAI, defaulted for Ollama, required for OmniRoute and FreeLLM |
+| `QUOTATION_API_KEY` | Provider-dependent | Generic secret key, taking precedence over provider-specific fallbacks |
 | `QUOTATION_HTTP_TIMEOUT_SECONDS` | `15` | Positive request timeout, up to 120 seconds |
 
-Do not put provider keys in `.env`; set `OPENAI_API_KEY` in the process
-environment or use a secret manager.
+Provider-specific key fallbacks are `OPENAI_API_KEY`, `OLLAMA_API_KEY`,
+`OMNIROUTE_API_KEY`, and `FREELLM_API_KEY`. Ollama does not require a real key;
+the model factory uses the harmless local sentinel `ollama` when no key is set.
+Provider names are case-insensitive and common forms such as `omni-route` and
+`free-llm` are normalized.
+
+The provider matrix is:
+
+| Provider | Adapter | Base URL | API key |
+| --- | --- | --- | --- |
+| `openai` | `langchain-openai` / `ChatOpenAI` | Optional; the adapter default is used when omitted | `QUOTATION_API_KEY` or `OPENAI_API_KEY` required by the factory |
+| `ollama` | `langchain-openai` / `ChatOpenAI` | Defaults to `http://localhost:11434/v1` | Optional; uses `ollama` locally when omitted |
+| `omniroute` | `langchain-openai` / `ChatOpenAI` | Explicit `QUOTATION_BASE_URL` required | `QUOTATION_API_KEY` or `OMNIROUTE_API_KEY` |
+| `freellm` | `langchain-openai` / `ChatOpenAI` | Explicit `QUOTATION_BASE_URL` required | `QUOTATION_API_KEY` or `FREELLM_API_KEY` |
+
+For a local setup, copy the example and edit only the local file:
+
+```bash
+copy .env.example .env  # PowerShell/cmd on Windows; use cp on Unix
+```
+
+`.env` is ignored by this package and MUST NEVER be committed. Use placeholders
+in `.env.example`, and never print or log API keys.
 
 ## Commercial defaults
 
@@ -63,7 +87,25 @@ a quote automatically.
 
 `resolve_invocation` accepts an injected callable or a model with an `invoke`
 method. It does not construct a provider or make network calls. This keeps
-automated tests offline; live provider construction belongs to a later task.
+automated tests offline. `create_configured_model` is the explicit opt-in
+factory for constructing a `ChatOpenAI` model from `QuotationConfig`, `.env`,
+or process environment settings; construction itself does not invoke the
+endpoint.
+
+Manual live smoke test (run only when the configured endpoint and credentials
+are available):
+
+```python
+from quotation_agents import create_configured_model
+
+model = create_configured_model()
+response = model.invoke("Reply with exactly: quotation provider is reachable")
+print(response.content)
+```
+
+This snippet is intentionally not part of the automated suite and can contact
+the configured provider. Keep credentials in the ignored local `.env` or a
+secret manager, not in source control.
 
 ## QA-002 intake and approval
 
