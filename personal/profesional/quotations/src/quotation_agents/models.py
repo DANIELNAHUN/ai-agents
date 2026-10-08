@@ -41,6 +41,17 @@ class QuotationTask(BaseModel):
         return value
 
 
+class RequirementInference(BaseModel):
+    """Editable, provider-generated requirement analysis for a quotation draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inferred_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
 class QuotationDraft(BaseModel):
     """Editable quotation intake and scope awaiting human review."""
 

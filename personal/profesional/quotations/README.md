@@ -2,7 +2,9 @@
 
 An independent Python package for the software quotation workflow. QA-001
 provides validated configuration, commercial policy and rate constants,
-editable quotation state, and an injectable provider boundary.
+editable quotation state, and an injectable provider boundary. QA-002 adds
+provider-injected client intake, requirement inference, and explicit human
+approval boundaries.
 
 ## Quick path
 
@@ -63,9 +65,57 @@ a quote automatically.
 method. It does not construct a provider or make network calls. This keeps
 automated tests offline; live provider construction belongs to a later task.
 
-## QA-001 limits
+## QA-002 intake and approval
 
-This bootstrap does not implement requirement inference, task decomposition,
-effort or price calculation, payment rules, human approval flow, persistence,
-CLI behavior, or DOCX/PDF generation. In particular, no ideal-price formula or
-contingency rule is defined here.
+Requirement inference is represented separately from `QuotationDraft`:
+`RequirementInference` contains only editable inferred scope, assumptions,
+questions, and risks. Unknown fields are rejected, so a provider response cannot
+approve a draft or replace its original request.
+
+Pass a callable, model, or already-created agent explicitly to `intake_draft`:
+
+```python
+from quotation_agents import (
+    approve_draft,
+    intake_draft,
+    require_approved_draft,
+    revise_draft,
+)
+
+
+def offline_inference(request):
+    return {
+        "structured_response": {
+            "inferred_scope": ["Booking flow"],
+            "assumptions": ["Payment provider is not selected"],
+            "questions": ["Which provider should be used?"],
+            "risks": ["Payment requirements may change"],
+        }
+    }
+
+
+draft = intake_draft("Example Ltd", "Build a booking site", invoke=offline_inference)
+approved = approve_draft(draft)
+require_approved_draft(approved)  # Safe boundary for later proposal generation.
+draft_again = revise_draft(approved, inferred_scope=["Booking flow", "Checkout"])
+assert draft_again.approval_state.value == "pending"
+```
+
+`intake_draft` validates the client/company and preserves the exact original
+request. It always returns `ApprovalState.PENDING`, regardless of provider
+output. `approve_draft` is the explicit human approval step; `revise_draft`
+returns an edited copy and resets approval to pending without changing the
+original request. `require_approved_draft` raises
+`DraftApprovalRequiredError` for pending drafts.
+
+`create_requirement_inference_agent(model)` follows the LangChain 1.x
+`create_agent(..., response_format=RequirementInference)` convention. The model
+is injected by the caller. The package never constructs a provider, reads
+credentials, makes network calls, or invokes a live model implicitly. Tests can
+use the same `invoke` contract with an offline callable or fake model.
+
+## Current limits
+
+This package does not yet implement task decomposition, effort or price
+calculation, payment rules, persistence, CLI behavior, or DOCX/PDF generation.
+In particular, no ideal-price formula or contingency rule is defined here.
