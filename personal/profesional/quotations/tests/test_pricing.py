@@ -189,3 +189,14 @@ def test_quote_calculation_does_not_mutate_draft_or_tasks() -> None:
 
     assert draft.approval_state is ApprovalState.APPROVED
     assert draft.tasks[0].estimated_hours == Decimal("2")
+
+
+def test_quote_records_a_deterministic_source_draft_fingerprint() -> None:
+    draft = approved([task(WorkCategory.BACKEND, "API", "2")])
+
+    first = calculate_quote(draft)
+    second = calculate_quote(draft)
+    changed = calculate_quote(draft.model_copy(update={"client_company": "Other Ltd"}))
+
+    assert first.source_draft_fingerprint == second.source_draft_fingerprint
+    assert first.source_draft_fingerprint != changed.source_draft_fingerprint

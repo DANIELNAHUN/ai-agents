@@ -9,12 +9,12 @@ import tempfile
 import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 from xml.etree import ElementTree as ET
 
 from .models import QuotationDraft, QuotationTask, WorkCategory
-from .pricing import QuoteResult
+from .pricing import QuoteResult, _draft_fingerprint
 from .workflow import require_approved_draft
 
 Language = Literal["en", "es"]
@@ -374,7 +374,16 @@ def libreoffice_pdf_converter(
 
 
 def _safe_paths(output_dir: Path, filename: str, include_pdf: bool) -> tuple[Path, Path | None]:
-    if not filename or filename in {".", ".."} or "/" in filename or "\\" in filename:
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or filename in {".", ".."}
+        or any(separator in filename for separator in ("/", "\\", ":"))
+        or PurePosixPath(filename).name != filename
+        or PureWindowsPath(filename).name != filename
+        or PureWindowsPath(filename).drive
+        or PureWindowsPath(filename).root
+    ):
         raise ProposalDocumentError("filename must be a simple output name")
     stem = filename.removesuffix(".docx").removesuffix(".pdf")
     if not stem:
@@ -423,6 +432,8 @@ def generate_proposal_documents(
     approved_draft = require_approved_draft(draft)
     if not isinstance(quote, QuoteResult):
         raise ProposalDocumentError("quote must be a deterministic QuoteResult")
+    if getattr(quote, "source_draft_fingerprint", None) != _draft_fingerprint(approved_draft):
+        raise ProposalDocumentError("quote does not belong to the approved draft")
     _language(language)
     output_path = Path(output_dir)
     docx_path, pdf_path = _safe_paths(output_path, filename, pdf_converter is not None)

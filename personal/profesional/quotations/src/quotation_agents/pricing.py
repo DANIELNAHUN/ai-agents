@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from decimal import ROUND_CEILING, Decimal
 from typing import Literal
@@ -155,12 +157,29 @@ class QuoteResult(BaseModel):
     requires_modularization: bool
     manual_approval_required: bool
     payment_schedule: PaymentSchedule
+    source_draft_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     @property
     def quote_amount(self) -> Decimal:
         """Alias for the amount selected for the quote."""
 
         return self.selected_amount
+
+
+def _draft_fingerprint(draft: QuotationDraft) -> str:
+    """Return a stable identity for the complete serialized draft state."""
+
+    serialized = json.dumps(
+        draft.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def _task_list(tasks_or_draft: Sequence[QuotationTask] | QuotationDraft) -> list[QuotationTask]:
@@ -414,6 +433,7 @@ def calculate_quote(
         requires_modularization=ceiling_exceeded,
         manual_approval_required=ceiling_exceeded,
         payment_schedule=schedule,
+        source_draft_fingerprint=_draft_fingerprint(approved_draft),
     )
 
 

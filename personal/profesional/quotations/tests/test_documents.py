@@ -144,3 +144,26 @@ def test_existing_output_is_not_overwritten_without_explicit_policy(tmp_path) ->
 
     with pytest.raises(ProposalDocumentError, match="overwrite"):
         generate_proposal_documents(draft, quote, tmp_path, filename="protected")
+
+
+def test_drive_relative_filename_is_rejected(tmp_path) -> None:
+    draft = approved([task(WorkCategory.FRONTEND, "Small page", "2")])
+
+    with pytest.raises(ProposalDocumentError, match="simple output name"):
+        generate_proposal_documents(draft, calculate_quote(draft), tmp_path, filename="C:escape")
+
+
+def test_proposal_rejects_a_quote_calculated_from_another_approved_draft(tmp_path) -> None:
+    source = approved([task(WorkCategory.BACKEND, "Build API", "2")])
+    supplied = approved([task(WorkCategory.BACKEND, "Build API", "3")])
+
+    with pytest.raises(ProposalDocumentError, match="does not belong"):
+        generate_proposal_documents(supplied, calculate_quote(source), tmp_path)
+
+
+def test_proposal_rejects_a_quote_without_a_source_association(tmp_path) -> None:
+    draft = approved([task(WorkCategory.BACKEND, "Build API", "2")])
+    quote = calculate_quote(draft).model_copy(update={"source_draft_fingerprint": None})
+
+    with pytest.raises(ProposalDocumentError, match="does not belong"):
+        generate_proposal_documents(draft, quote, tmp_path)

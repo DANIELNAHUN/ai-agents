@@ -144,7 +144,8 @@ category subtotal as `hours * hourly_rate`, rounds each subtotal with Decimal
 `CommercialPolicy.available_hours_per_day`.
 
 `calculate_quote` accepts only an approved `QuotationDraft`, returns a new
-`QuoteResult`, and never mutates the draft. Its editable `QuoteInputs` are explicit:
+`QuoteResult` with a deterministic SHA-256 `source_draft_fingerprint`, and never
+mutates the draft. Its editable `QuoteInputs` are explicit:
 
 ```text
 raw       = sum(category subtotals)
@@ -182,8 +183,9 @@ exactly to the selected quote amount.
 ## QA-005 proposal documents
 
 `generate_proposal_documents` is the only document-generation entry point. It requires an
-`ApprovalState.APPROVED` `QuotationDraft` and an existing deterministic `QuoteResult`; it
-does not infer, approve, or recalculate either value. The DOCX preserves the client/company,
+`ApprovalState.APPROVED` `QuotationDraft` and an existing deterministic `QuoteResult` whose
+`source_draft_fingerprint` matches the supplied draft; it does not infer, approve, or
+recalculate either value. The DOCX preserves the client/company,
 original request, interpreted scope, categorized tasks, three-hour calendar days, category
 rates/subtotals, quote bands, selected amount, payment milestones, assumptions, risks, and
 questions. It also states that IGV is excluded, validity is 14 calendar days, and the three
