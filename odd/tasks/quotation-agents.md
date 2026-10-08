@@ -62,7 +62,7 @@ The user wants to divide project payments by progress and modules instead of req
 - [x] QA-002 — Implement client intake, requirement inference, assumptions, and human approval boundaries.
 - [x] QA-003 — Implement planning, Backend, Frontend, and DevOps decomposition agents with structured task outputs.
 - [x] QA-004 — Implement effort estimation, PEN pricing, flexible floor/ceiling handling, module splitting, and payment schedules.
-- [ ] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
+- [x] QA-005 — Implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
 - [ ] QA-006 — Implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
 
 ## Authorized scope and route
@@ -111,7 +111,7 @@ The user wants to divide project payments by progress and modules instead of req
 | QA-002 | verified | `uv run pytest` (41 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review blocked by intended-untracked selection contract | `433306f` |
 | QA-003 | verified | `uv run pytest` (56 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native review preflight blocked by intended-untracked-selection schema | `d19a127` |
 | QA-004 | verified | `uv run pytest` (69 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); native risk assessment: medium; native review approved with 3 non-blocking reliability findings | `0a8b65e` |
-| QA-005 | pending | — | — |
+| QA-005 | verified | `uv run pytest` (80 passed); `python -m compileall src tests` (passed); `uv run ruff check src tests` (passed); focused document/pricing tests (24 passed); native risk assessment: high; native review blocked by unrelated intended-untracked selection; independent verification passed | `fe2b9af`, `0d16ab8` |
 | QA-006 | pending | — | — |
 
 ## Resume protocol
@@ -120,7 +120,7 @@ Before continuing, read this task card, reconcile its requirements with the curr
 
 ## Next step
 
-QA-005: implement professional proposal generation in DOCX/PDF with scope, estimates, payments, validity, assumptions, and exclusions.
+QA-006: implement quotation review, representative test scenarios, operational documentation, and end-to-end verification.
 
 ## QA-001 Evidence
 
@@ -158,3 +158,13 @@ QA-005: implement professional proposal generation in DOCX/PDF with scope, estim
 - Writer verification: focused pricing tests — 13 passed; `uv run pytest` — 69 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check: `uv run pytest` — 69 passed.
 - `gentle-ai review assess` classified the committed package candidate as `medium` (5 paths, 713 changed lines). Native review lineage `review-8fb116e8d93bf91e` was approved and acknowledged; authority was burned. Findings were non-blocking: non-positive task-hour boundary coverage, residual-cent allocation coverage, and rounded module percentage semantics. No correction was opened and no GitHub operation was performed.
 - Work-unit commit: `0a8b65e` (`feat(quotations): add pricing and payment calculations`). Rollback boundary: revert `0a8b65e` to remove QA-004 pricing, module, payment, tests, and documentation behavior without touching the unrelated CV files.
+
+## QA-005 Evidence
+
+- Added `documents.py` with deterministic, approval-gated DOCX proposal generation, optional injectable PDF conversion, structural DOCX/PDF validation, safe output naming, and overwrite protection. The public entry point is exported as `generate_proposal_documents`.
+- Proposals preserve the approved client/company, original request, scope, categorized tasks, effort and three-hour calendar days, category rates/subtotals, quote bands, selected amount, payment schedule, assumptions, risks, questions, IGV exclusion, 14-day validity, and separate-charge exclusions. English and Spanish client-facing labels are supported.
+- Amounts above S/10,000 remain visible and disclose modularization/manual approval; below-S/700 quotes render one full-project payment, while quotes at or above S/700 render the 40% advance and remaining milestones. PDF generation stays offline by default and requires an injected converter or explicit LibreOffice converter.
+- Added a deterministic SHA-256 draft fingerprint to `QuoteResult`; document generation rejects a missing or mismatched quote/draft association without recalculating pricing. Path-like and drive-relative output names are rejected across platforms.
+- Writer verification: focused document/pricing tests — 24 passed; `uv run pytest` — 80 passed; `python -m compileall src tests` — passed; `uv run ruff check src tests` — all checks passed. Coordinator spot-check repeated the focused tests successfully. Independent verification passed with additional approval, fingerprint, filename, content, PDF-injection, and overwrite probes.
+- `gentle-ai review mode status` was enabled globally, but native review preflight required selection of unrelated untracked CV template files and could not produce a review receipt. Risk assessment classified the committed candidate as high because of the shell-process boundary. No GitHub operation was performed; unrelated untracked files were untouched.
+- Work-unit commits: `fe2b9af` (`feat(quotations): generate proposal documents`) and `0d16ab8` (`fix(quotations): bind proposal documents to quote drafts`). Rollback boundary: revert both commits to remove QA-005 document generation and its bounded integrity correction without touching prior quotation pricing or unrelated CV files. Real LibreOffice conversion remains an environment-dependent limitation because `soffice` is unavailable on PATH.
