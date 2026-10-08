@@ -6,7 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import WorkCategory
 
@@ -36,6 +36,12 @@ class CommercialPolicy(BaseModel):
     payment_threshold: Decimal = Field(default=Decimal("700.00"), ge=0)
     advance_rate: Decimal = Field(default=Decimal("0.40"), gt=0, le=1)
     validity_days: int = Field(default=14, gt=0)
+
+    @model_validator(mode="after")
+    def validate_quote_bounds(self) -> "CommercialPolicy":
+        if self.quote_floor > self.quote_ceiling:
+            raise ValueError("quote_floor must be less than or equal to quote_ceiling")
+        return self
 
 
 COMMERCIAL_POLICY = CommercialPolicy()

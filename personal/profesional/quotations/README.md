@@ -48,10 +48,10 @@ overrides.
 | Frontend | S/20 |
 | DevOps | S/15 |
 
-The policy also records that IGV is excluded, three available hours per day, a S/150 floor,
+The policy records that IGV is excluded, three available hours per day, a S/150 floor,
 S/10,000 ceiling, S/700 payment threshold, 40% advance rate, and 14-day quote
-validity. These are inputs for later workflow tasks; this package does not yet
-calculate prices, payment schedules, or proposal documents.
+validity. `CommercialPolicy` rejects a floor above its ceiling; callers may provide a
+validated custom policy to calculations.
 
 ## State and provider boundary
 
@@ -134,8 +134,55 @@ with `revise_draft(approved, tasks=result.tasks)` when appropriate; revision
 intentionally resets the draft to `ApprovalState.PENDING`, so it must be
 approved again before downstream proposal work.
 
+## QA-004 effort and pricing
+
+`estimate_effort` consumes the editable `QuotationTask.estimated_hours` values. Every
+task must have a positive Decimal estimate. It sums hours by category, calculates each
+category subtotal as `hours * hourly_rate`, rounds each subtotal with Decimal
+`ROUND_HALF_UP`, and sums those subtotals into `raw_amount`. Calendar days are
+`ceil(total_hours / 3)`; the three hours/day assumption is controlled by
+`CommercialPolicy.available_hours_per_day`.
+
+`calculate_quote` accepts only an approved `QuotationDraft`, returns a new
+`QuoteResult`, and never mutates the draft. Its editable `QuoteInputs` are explicit:
+
+```text
+raw       = sum(category subtotals)
+minimum   = raw
+ideal     = raw * complexity_factor * dependency_factor
+maximum   = ideal * risk_factor * (1 + contingency_rate)
+selected  = selected band, or custom_amount when supplied
+```
+
+All monetary results are rounded with `ROUND_HALF_UP`. Defaults are
+`complexity_factor=1.00`, `dependency_factor=1.00`, `risk_factor=1.00`, and
+`contingency_rate=0.00`, so no hidden commercial contingency is added. The raw amount
+is retained separately. Factors are editable and are deliberately explicit rather
+than inferred from provider output.
+
+The effective floor is applied only as a minimum (`max(selected, floor)`), so the raw
+amount is not lost. A value exactly at S/10,000 is valid. A value above the ceiling is
+never clipped: `ceiling_exceeded`, `requires_modularization`, and
+`manual_approval_required` are set to `True` so a human can approve a modular/manual
+commercial decision.
+
+## QA-004 modules and payments
+
+`split_modules` accepts a mapping or `ModuleSpec` values containing zero-based task
+indexes. It rejects blank/empty modules, duplicate module names, duplicate task
+assignments, unassigned tasks, and invalid indexes. It returns the original task
+category and description in deterministic module order; it does not mutate tasks.
+
+Below S/700, the schedule contains exactly one `Full project` payment. At or above
+S/700, it contains a 40% `Advance` and the remaining balance is allocated by module
+raw effort (or one `Project completion` milestone when modules are absent). Decimal
+cent rounding residuals are assigned deterministically and every schedule reconciles
+exactly to the selected quote amount.
+
 ## Current limits
 
-This package does not yet implement effort or price calculation, payment rules,
-persistence, CLI behavior, or DOCX/PDF generation.
-In particular, no ideal-price formula or contingency rule is defined here.
+This package does not implement persistence, CLI behavior, automatic approval,
+provider construction, or DOCX/PDF generation. Quote inputs/results are in-memory
+Pydantic models; revise editable draft tasks with `revise_draft`, then approve again
+before downstream calculations. No calculation silently approves a draft or creates
+a proposal document.
