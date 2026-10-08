@@ -179,10 +179,40 @@ raw effort (or one `Project completion` milestone when modules are absent). Deci
 cent rounding residuals are assigned deterministically and every schedule reconciles
 exactly to the selected quote amount.
 
+## QA-005 proposal documents
+
+`generate_proposal_documents` is the only document-generation entry point. It requires an
+`ApprovalState.APPROVED` `QuotationDraft` and an existing deterministic `QuoteResult`; it
+does not infer, approve, or recalculate either value. The DOCX preserves the client/company,
+original request, interpreted scope, categorized tasks, three-hour calendar days, category
+rates/subtotals, quote bands, selected amount, payment milestones, assumptions, risks, and
+questions. It also states that IGV is excluded, validity is 14 calendar days, and the three
+separate-charge exclusions are adjustments, new functionality outside approved requirements,
+and server migrations. Amounts above S/10,000 remain visible and disclose modularization and
+manual approval.
+
+```python
+from quotation_agents import generate_proposal_documents, libreoffice_pdf_converter
+
+documents = generate_proposal_documents(
+    approved_draft,
+    quote_result,
+    "out/quotations",
+    filename="booking-proposal",
+    pdf_converter=libreoffice_pdf_converter,  # Optional local PDF conversion
+)
+print(documents.docx_path, documents.pdf_path, documents.docx_validation)
+```
+
+Output names are deterministic and existing files are protected unless `overwrite=True` is
+explicitly passed. PDF conversion is injectable, so tests can use a fake converter without
+LibreOffice. The default package does not invoke LibreOffice implicitly; when real conversion
+is desired, `soffice` must be installed and available on `PATH`. `validate_docx` and
+`validate_pdf` provide dependency-free structural checks for generated outputs.
+
 ## Current limits
 
-This package does not implement persistence, CLI behavior, automatic approval,
-provider construction, or DOCX/PDF generation. Quote inputs/results are in-memory
-Pydantic models; revise editable draft tasks with `revise_draft`, then approve again
-before downstream calculations. No calculation silently approves a draft or creates
-a proposal document.
+This package does not implement persistence, CLI behavior, automatic approval, or provider
+construction. Quote inputs/results and proposal documents are in-memory/domain outputs; revise
+editable draft tasks with `revise_draft`, then approve again before downstream calculations or
+document generation. No calculation or document call silently approves a draft.

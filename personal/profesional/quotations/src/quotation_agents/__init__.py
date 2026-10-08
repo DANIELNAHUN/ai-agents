@@ -7,6 +7,15 @@ from .decomposition import (
     create_decomposition_agent,
     decompose_category,
 )
+from .documents import (
+    DocumentValidation,
+    ProposalDocumentError,
+    ProposalDocuments,
+    generate_proposal_documents,
+    libreoffice_pdf_converter,
+    validate_docx,
+    validate_pdf,
+)
 from .inference import (
     INFERENCE_SYSTEM_PROMPT,
     InferenceError,
@@ -65,6 +74,7 @@ __all__ = [
     "ConfigurationError",
     "DECOMPOSITION_SYSTEM_PROMPT",
     "DecompositionError",
+    "DocumentValidation",
     "DraftApprovalRequiredError",
     "HOURLY_RATES",
     "INFERENCE_SYSTEM_PROMPT",
@@ -75,6 +85,8 @@ __all__ = [
     "Payment",
     "PaymentSchedule",
     "ProviderError",
+    "ProposalDocumentError",
+    "ProposalDocuments",
     "QuotationConfig",
     "QuotationCalculationError",
     "QuotationDraft",
@@ -96,8 +108,10 @@ __all__ = [
     "create_requirement_inference_agent",
     "edit_draft",
     "estimate_effort",
+    "generate_proposal_documents",
     "infer_requirements",
     "intake_draft",
+    "libreoffice_pdf_converter",
     "decompose_category",
     "load_config",
     "partition_tasks",
@@ -106,4 +120,6 @@ __all__ = [
     "resolve_invocation",
     "revise_draft",
     "split_modules",
+    "validate_docx",
+    "validate_pdf",
 ]
