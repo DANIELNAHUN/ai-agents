@@ -1,5 +1,12 @@
 """Standalone foundations for software quotation workflows."""
 
+from .attachments import (
+    SUPPORTED_ATTACHMENT_SUFFIXES,
+    AttachmentError,
+    SourceDocument,
+    load_source_document,
+    load_source_documents,
+)
 from .commercial import (
     COMMERCIAL_SYNTHESIS_SYSTEM_PROMPT,
     CommercialBudget,
@@ -90,6 +97,7 @@ from .workflow import (
 )
 
 __all__ = [
+    "AttachmentError",
     "ApprovalState",
     "COMMERCIAL_POLICY",
     "COMMERCIAL_SYNTHESIS_SYSTEM_PROMPT",
@@ -119,7 +127,9 @@ __all__ = [
     "Payment",
     "PaymentSchedule",
     "ProviderError",
+    "SUPPORTED_ATTACHMENT_SUFFIXES",
     "SUPPORTED_PROVIDERS",
+    "SourceDocument",
     "ProposalDocumentError",
     "ProposalDocuments",
     "QuotationConfig",
@@ -154,6 +164,8 @@ __all__ = [
     "infer_requirements",
     "intake_draft",
     "libreoffice_pdf_converter",
+    "load_source_document",
+    "load_source_documents",
     "decompose_category",
     "load_config",
     "partition_tasks",
