@@ -3,19 +3,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
-import pytest
-
 from quotation_agents import (
     ApprovalState,
-    CommercialBudget,
-    CommercialComponent,
-    CommercialDeliverable,
-    CommercialEstimation,
-    CommercialPayment,
     CommercialProposal,
-    CommercialTaskItem,
-    CommercialUnderstanding,
-    DraftApprovalRequiredError,
     QuotationDraft,
     QuotationTask,
     WorkCategory,
@@ -24,7 +14,6 @@ from quotation_agents import (
     generate_commercial_proposal_documents,
     split_modules,
     synthesize_commercial_proposal,
-    validate_docx,
 )
 
 
@@ -111,22 +100,24 @@ def test_synthesize_commercial_proposal_with_mock_invoke() -> None:
 
     mock_response = {
         "structured_response": {
-            "project_name": "Sistema Cableclub",
-            "client_name": "Cableclub",
-            "provider_name": "Daniel Calcina",
-            "understanding": {
+            "header": {
+                "project_name": "Sistema Cableclub",
+                "client_name": "Cableclub",
+                "provider_name": "Daniel Calcina",
+            },
+            "project_understanding": {
                 "summary": "Sistema web para fidelización de clientes.",
                 "components": [
                     {"title": "Módulo Campañas", "description": "Gestión integral de beneficios"}
                 ],
             },
-            "estimation": {
+            "task_estimation": {
                 "tasks": [{"name": "Módulo Campañas", "hours": 14, "cost": 420.00}],
                 "discount": 0,
                 "total_hours": 14,
                 "total_cost": 420.00,
             },
-            "budget": {
+            "budget_summary": {
                 "estimated_duration": "14 horas / 1 semana",
                 "investment_summary": "S/. 420.00 PEN en total",
                 "includes": ["Backend completo"],
