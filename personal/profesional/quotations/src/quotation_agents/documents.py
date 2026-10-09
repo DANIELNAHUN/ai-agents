@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 from xml.etree import ElementTree as ET
 
+from .commercial import CommercialProposal
 from .models import QuotationDraft, QuotationTask, WorkCategory
 from .pricing import QuoteResult, _draft_fingerprint
 from .review import review_quote
@@ -454,3 +455,82 @@ def generate_proposal_documents(
         pdf_converter(docx_path, pdf_path)
         pdf_validation = validate_pdf(pdf_path)
     return ProposalDocuments(docx_path, pdf_path, docx_validation, pdf_validation)
+
+
+def _commercial_proposal_xml(proposal: CommercialProposal) -> bytes:
+    document = ET.Element(f"{{{_W}}}document")
+    body = ET.SubElement(document, f"{{{_W}}}body")
+
+    body.append(_paragraph(proposal.project_name, style="Title", bold=True))
+    body.append(_paragraph(f"Propuesta Comercial – {proposal.project_name}", bold=True))
+    body.append(_paragraph(f"Proyecto: {proposal.project_name}"))
+    body.append(_paragraph(f"Cliente: {proposal.client_name}"))
+    body.append(_paragraph(f"Proveedor: {proposal.provider_name}"))
+
+    body.append(_paragraph("1. Entendimiento del proyecto", style="Heading1", bold=True))
+    body.append(_paragraph(proposal.understanding.summary))
+    for comp in proposal.understanding.components:
+        body.append(_paragraph(f"• {comp.title}: {comp.description}"))
+
+    body.append(_paragraph("2. Estimacion horas por tareas", style="Heading1", bold=True))
+    rows: list[list[str]] = [["TAREAS", "HORAS TOTAL", "COSTO TOTAL"]]
+    for task in proposal.estimation.tasks:
+        rows.append([task.name, str(task.hours), f"S/. {task.cost:.2f}"])
+    if proposal.estimation.discount > 0:
+        rows.append(["Descuento", "", f"-S/. {proposal.estimation.discount:.2f}"])
+    rows.append([
+        "TOTAL",
+        str(proposal.estimation.total_hours),
+        f"S/. {proposal.estimation.total_cost:.2f}",
+    ])
+    body.append(_table(rows))
+
+    body.append(_paragraph("3. Presupuesto estimado", style="Heading1", bold=True))
+    body.append(_paragraph(f"Total estimado: {proposal.budget.estimated_duration}"))
+    body.append(_paragraph(f"Inversion estimada: {proposal.budget.investment_summary}"))
+    body.append(_paragraph("Incluye:", bold=True))
+    for item in proposal.budget.includes:
+        body.append(_paragraph(f"• {item}"))
+    body.append(_paragraph("No incluye:", bold=True))
+    for item in proposal.budget.excludes:
+        body.append(_paragraph(f"• {item}"))
+
+    body.append(_paragraph("4. Pago", style="Heading1", bold=True))
+    for p in proposal.payment_schedule:
+        body.append(_paragraph(f"{p.milestone_label} de S/. {p.amount:.2f} {p.condition}"))
+
+    body.append(_paragraph("5. Entregables", style="Heading1", bold=True))
+    for d in proposal.deliverables:
+        body.append(_paragraph(f"{d.name}: {d.content}"))
+
+    body.append(ET.Element(f"{{{_W}}}sectPr"))
+    return ET.tostring(document, encoding="utf-8", xml_declaration=True)
+
+
+def generate_commercial_proposal_documents(
+    proposal: CommercialProposal,
+    output_dir: str | Path,
+    *,
+    filename: str = "commercial-proposal",
+    pdf_converter: PdfConverter | None = None,
+    overwrite: bool = False,
+) -> ProposalDocuments:
+    """Generate a client-facing proposal DOCX/PDF matching Cableclub format."""
+
+    if not isinstance(proposal, CommercialProposal):
+        raise ProposalDocumentError("proposal must be an instance of CommercialProposal")
+
+    output_path = Path(output_dir)
+    docx_path, pdf_path = _safe_paths(output_path, filename, pdf_converter is not None)
+    if not overwrite and (docx_path.exists() or (pdf_path is not None and pdf_path.exists())):
+        raise ProposalDocumentError("refusing to overwrite an existing proposal output")
+
+    xml = _commercial_proposal_xml(proposal)
+    _write_bytes(docx_path, _docx_bytes(xml), overwrite=overwrite)
+    docx_validation = validate_docx(docx_path)
+    pdf_validation = None
+    if pdf_converter is not None and pdf_path is not None:
+        pdf_converter(docx_path, pdf_path)
+        pdf_validation = validate_pdf(pdf_path)
+    return ProposalDocuments(docx_path, pdf_path, docx_validation, pdf_validation)
+
