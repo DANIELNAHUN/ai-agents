@@ -119,6 +119,43 @@ text locally and sends it to the configured model during intake and task decompo
 Scanned PDFs need OCR before attachment. The document text is treated as source material,
 not as agent instructions.
 
+### Progress output
+
+Every LLM step prints which agent is running, its live status, and a one-line summary:
+
+```
+  ▸ Requirement inference agent · gpt-4o-mini
+    ⠹ waiting for model (call 1)... 12s
+  ✔ Requirement inference agent · gpt-4o-mini · 14.3s · 1 model call · 5,312 in / 812 out tokens
+```
+
+Each phase uses one specialized agent (inference, one decomposition agent per category, and
+commercial synthesis). The status shows model calls and tool calls; the model's internal
+reasoning is not exposed. On a terminal the status is a single spinner line updated in place;
+when output is redirected, each status change is printed once. Consoles that cannot render the
+symbols fall back to ASCII (`>`, `OK`, `FAIL`).
+
+If a step keeps waiting with large attachments, raise `QUOTATION_HTTP_TIMEOUT_SECONDS`
+(default 15, maximum 120) in `.env`.
+
+### Reviewing and correcting
+
+Each checkpoint offers a menu instead of a yes/no question:
+
+| Checkpoint | Options |
+|---|---|
+| Scope (phase 2) | `a` approve · `r` revise with feedback (the inference agent reruns with your comment and its previous result) · `q` quit |
+| Tasks (phase 3) | `a` approve · `e` edit the hours of one task · `r` revise one category with feedback · `q` quit |
+| Quote (phase 4) | `a` accept · `b` back to tasks to adjust and recalculate · `q` quit |
+
+Tasks cannot be approved while any task lacks estimated hours. If pricing cannot be
+calculated, the CLI returns to task review instead of exiting.
+
+Feedback can refer to tasks by the numbers shown in the list (for example "14. takes 3
+hours, remove 17."); the agent receives the previous tasks with those same numbers. If an
+agent fails, for example by returning an invalid estimate, the CLI shows the error, keeps the
+previous result, and returns to the menu so you can retry, edit hours, or approve.
+
 ### Output files
 
 | File | Audience | Content |

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -42,14 +43,20 @@ except ImportError:
 # Quotation package imports
 # ---------------------------------------------------------------------------
 from quotation_agents import (
-    AttachmentError,
     ApprovalState,
+    AttachmentError,
+    QuotationCalculationError,
     QuotationDraft,
     QuotationTask,
+    QuoteResult,
+    RequirementInference,
     WorkCategory,
     approve_draft,
     calculate_quote,
+    create_commercial_synthesis_agent,
     create_configured_model,
+    create_decomposition_agent,
+    create_requirement_inference_agent,
     decompose_category,
     generate_commercial_proposal_documents,
     generate_proposal_documents,
@@ -60,6 +67,7 @@ from quotation_agents import (
 )
 from quotation_agents.attachments import SourceDocument
 from quotation_agents.inference import infer_requirements
+from quotation_agents.progress import ProgressReporter, track
 
 # ---------------------------------------------------------------------------
 # Pretty print helpers
@@ -113,9 +121,15 @@ def _ask_yn(prompt: str, default: bool = True) -> bool:
 # Workflow phases
 # ---------------------------------------------------------------------------
 
+def _agent_label(name: str, model: Any) -> str:
+    model_name = getattr(model, "model_name", None) or getattr(model, "model", None)
+    return f"{name} · {model_name}" if isinstance(model_name, str) else name
+
+
 def _phase_intake(
     model: Any,
     source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
 ) -> QuotationDraft:
     """Phase 1 — Gather client info and infer requirements with the LLM."""
     _header("Phase 1 — Project intake")
@@ -127,7 +141,8 @@ def _phase_intake(
 
     print(
         f"\n{Fore.YELLOW}Describe the project in as much detail as you have.\n"
-        f"Press Enter twice when done.{Style.RESET_ALL}"
+        "Single blank lines between paragraphs are kept.\n"
+        f"Press Enter on two empty lines in a row to finish.{Style.RESET_ALL}"
     )
     lines = []
     try:
@@ -149,12 +164,16 @@ def _phase_intake(
         for document in source_documents:
             _bullet(document.name)
 
-    print(f"\n{Fore.CYAN}Running requirement inference...{Style.RESET_ALL}")
+    print()
     inference = infer_requirements(
         client,
         request,
         source_documents=source_documents,
-        model=model,
+        agent=track(
+            create_requirement_inference_agent(model),
+            progress or ProgressReporter(),
+            _agent_label("Requirement inference agent", model),
+        ),
     )
 
     draft = QuotationDraft(
@@ -169,10 +188,26 @@ def _phase_intake(
     return draft
 
 
-def _phase_review_draft(draft: QuotationDraft) -> QuotationDraft:
-    """Phase 2 — Show inferred scope and ask for approval or edits."""
-    _header("Phase 2 — Review inferred scope")
+def _ask_choice(prompt: str, choices: dict[str, str]) -> str:
+    """Ask until the user picks one of the keyed choices; return its key."""
 
+    menu = "  ".join(f"[{key}] {label}" for key, label in choices.items())
+    while True:
+        print(f"\n{Fore.CYAN}{menu}{Style.RESET_ALL}")
+        answer = _ask(prompt).lower()
+        if answer in choices:
+            return answer
+        _warn(f"Invalid option {answer!r}; choose one of: {', '.join(choices)}")
+
+
+def _ask_feedback(prompt: str) -> str:
+    feedback = _ask(prompt)
+    if not feedback:
+        _warn("No feedback entered; nothing was changed.")
+    return feedback
+
+
+def _print_scope(draft: QuotationDraft) -> None:
     _info("Client", draft.client_company)
     req_preview = draft.original_request[:120]
     if len(draft.original_request) > 120:
@@ -183,65 +218,258 @@ def _phase_review_draft(draft: QuotationDraft) -> QuotationDraft:
     for item in draft.inferred_scope:
         _bullet(item)
 
-    if draft.assumptions:
-        print(f"\n{Fore.YELLOW}Assumptions:{Style.RESET_ALL}")
-        for item in draft.assumptions:
-            _bullet(item)
+    sections = (
+        ("Assumptions", draft.assumptions),
+        ("Questions pending confirmation", draft.questions),
+        ("Risks", draft.risks),
+    )
+    for title, items in sections:
+        if items:
+            print(f"\n{Fore.YELLOW}{title}:{Style.RESET_ALL}")
+            for item in items:
+                _bullet(item)
 
-    if draft.questions:
-        print(f"\n{Fore.YELLOW}Questions pending confirmation:{Style.RESET_ALL}")
-        for item in draft.questions:
-            _bullet(item)
 
-    if draft.risks:
-        print(f"\n{Fore.YELLOW}Risks:{Style.RESET_ALL}")
-        for item in draft.risks:
-            _bullet(item)
+def _phase_review_draft(
+    draft: QuotationDraft,
+    model: Any,
+    source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
+) -> QuotationDraft:
+    """Phase 2 — Review the inferred scope; approve it or revise it with feedback."""
+    _header("Phase 2 — Review inferred scope")
 
-    if not _ask_yn("\nApprove this scope to continue to task decomposition?"):
-        print("Scope rejected. Exiting — re-run to restart with a refined description.")
-        sys.exit(0)
+    progress = progress or ProgressReporter()
+    while True:
+        _print_scope(draft)
+        choice = _ask_choice(
+            "Scope decision",
+            {"a": "Approve", "r": "Revise with feedback", "q": "Quit"},
+        )
+        if choice == "a":
+            return approve_draft(draft)
+        if choice == "q":
+            print("Scope rejected. Exiting.")
+            sys.exit(0)
 
-    return approve_draft(draft)
+        feedback = _ask_feedback("What should the agent change in the scope?")
+        if not feedback:
+            continue
+        print()
+        try:
+            inference = infer_requirements(
+                draft.client_company,
+                draft.original_request,
+                source_documents=source_documents,
+                agent=track(
+                    create_requirement_inference_agent(model),
+                    progress,
+                    _agent_label("Requirement inference agent", model),
+                ),
+                feedback=feedback,
+                previous=RequirementInference(
+                    inferred_scope=draft.inferred_scope,
+                    assumptions=draft.assumptions,
+                    questions=draft.questions,
+                    risks=draft.risks,
+                ),
+            )
+        except Exception as exc:  # keep the interactive session alive on agent errors
+            _agent_failed("inference", exc, "the previous scope was kept; try again or approve.")
+            continue
+        draft = revise_draft(draft, **inference.model_dump())
+
+
+def _agent_failed(agent_name: str, exc: Exception, outcome: str) -> None:
+    detail = " ".join(str(exc).split())
+    if len(detail) > 300:
+        detail = detail[:300] + "…"
+    _warn(f"The {agent_name} agent failed: {detail}\n  {outcome}")
+
+
+def _decompose(
+    scope: QuotationDraft,
+    category: WorkCategory,
+    model: Any,
+    source_documents: tuple[SourceDocument, ...],
+    progress: ProgressReporter,
+    *,
+    failure_outcome: str,
+    feedback: str | None = None,
+    previous_tasks: list[QuotationTask] | None = None,
+    task_numbers: list[int] | None = None,
+) -> list[QuotationTask] | None:
+    """Run one category agent; return None (after warning) when the agent fails."""
+
+    print()
+    try:
+        decomposition = decompose_category(
+            scope,
+            category,
+            source_documents=source_documents,
+            agent=track(
+                create_decomposition_agent(model, category=category),
+                progress,
+                _agent_label(f"Decomposition agent [{category.value}]", model),
+            ),
+            feedback=feedback,
+            previous_tasks=previous_tasks or (),
+            task_numbers=task_numbers,
+        )
+    except Exception as exc:  # keep the interactive session alive on agent errors
+        _agent_failed(category.value, exc, failure_outcome)
+        return None
+    return list(decomposition.tasks)
+
+
+def _print_tasks(tasks: list[QuotationTask]) -> None:
+    print(f"\n{Fore.CYAN}Tasks:{Style.RESET_ALL}")
+    for number, task in enumerate(tasks, start=1):
+        hours_text = f"{task.estimated_hours}h" if task.estimated_hours else "?h"
+        print(f"  {number:>2}. [{task.category.value}] {task.description} — {hours_text}")
+    total = sum((task.estimated_hours or Decimal("0") for task in tasks), Decimal("0"))
+    print(f"\n{Fore.CYAN}Total tasks:{Style.RESET_ALL} {len(tasks)} · {total}h estimated")
+
+    missing = sum(1 for task in tasks if task.estimated_hours is None)
+    if missing:
+        noun = "task has" if missing == 1 else "tasks have"
+        _warn(f"{missing} {noun} no estimated hours (shown as ?h).")
+
+
+def _ask_task_number(tasks: list[QuotationTask]) -> int | None:
+    raw = _ask(f"Task number (1-{len(tasks)})")
+    if raw.isdigit() and 1 <= int(raw) <= len(tasks):
+        return int(raw) - 1
+    _warn("Invalid task number.")
+    return None
+
+
+def _ask_hours(description: str) -> Decimal:
+    while True:
+        raw = _ask(f"Hours for \"{description}\"").replace(",", ".")
+        try:
+            hours = Decimal(raw)
+        except InvalidOperation:
+            hours = Decimal("0")
+        if hours.is_finite() and hours > 0:
+            return hours
+        _warn("Enter a positive number of hours, for example 6 or 2.5.")
+
+
+def _ask_category() -> WorkCategory | None:
+    categories = list(WorkCategory)
+    for number, category in enumerate(categories, start=1):
+        _bullet(f"{number}. {category.value}")
+    raw = _ask(f"Category to revise (1-{len(categories)})")
+    if raw.isdigit() and 1 <= int(raw) <= len(categories):
+        return categories[int(raw) - 1]
+    _warn("Invalid category.")
+    return None
+
+
+def _review_tasks(
+    scope: QuotationDraft,
+    tasks: list[QuotationTask],
+    model: Any,
+    source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
+) -> QuotationDraft:
+    """Let the user approve tasks, fix hours, or ask an agent to revise a category."""
+
+    progress = progress or ProgressReporter()
+    tasks = list(tasks)
+    while True:
+        _print_tasks(tasks)
+        choice = _ask_choice(
+            "Task decision",
+            {
+                "a": "Approve",
+                "e": "Edit hours",
+                "r": "Revise a category with feedback",
+                "q": "Quit",
+            },
+        )
+        if choice == "q":
+            print("Tasks rejected. Exiting.")
+            sys.exit(0)
+        if choice == "a":
+            if any(task.estimated_hours is None for task in tasks):
+                _warn(
+                    "Every task needs estimated hours before pricing. "
+                    "Edit them or ask the agent to revise the category."
+                )
+                continue
+            return approve_draft(revise_draft(scope, tasks=tasks))
+        if choice == "e":
+            index = _ask_task_number(tasks)
+            if index is not None:
+                hours = _ask_hours(tasks[index].description)
+                tasks[index] = tasks[index].model_copy(update={"estimated_hours": hours})
+            continue
+
+        category = _ask_category()
+        if category is None:
+            continue
+        feedback = _ask_feedback(f"What should the {category.value} agent change?")
+        if not feedback:
+            continue
+        numbered = [
+            (number, task)
+            for number, task in enumerate(tasks, start=1)
+            if task.category is category
+        ]
+        revised = _decompose(
+            scope,
+            category,
+            model,
+            source_documents,
+            progress,
+            failure_outcome="The previous tasks were kept; try again, edit hours, or approve.",
+            feedback=feedback,
+            previous_tasks=[task for _number, task in numbered],
+            task_numbers=[number for number, _task in numbered],
+        )
+        if revised is None:
+            continue
+        order = list(WorkCategory)
+        tasks = [task for task in tasks if task.category is not category] + revised
+        tasks.sort(key=lambda task: order.index(task.category))
 
 
 def _phase_decompose(
     draft: QuotationDraft,
     model: Any,
     source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
 ) -> QuotationDraft:
-    """Phase 3 — Decompose into technical tasks per work category."""
+    """Phase 3 — Decompose into technical tasks per work category, then review them."""
     _header("Phase 3 — Technical task decomposition")
 
-    all_tasks: list[QuotationTask] = []
+    progress = progress or ProgressReporter()
+    tasks: list[QuotationTask] = []
     for category in WorkCategory:
-        print(f"\n{Fore.CYAN}Decomposing category: {category.value}...{Style.RESET_ALL}")
-        decomposition = decompose_category(
+        category_tasks = _decompose(
             draft,
             category,
-            source_documents=source_documents,
-            model=model,
+            model,
+            source_documents,
+            progress,
+            failure_outcome="The category is empty for now; use [r] to retry it.",
         )
-        for task in decomposition.tasks:
-            hours_text = str(task.estimated_hours) if task.estimated_hours else "?"
-            _bullet(f"[{category.value}] {task.description} — {hours_text}h")
-        all_tasks.extend(decomposition.tasks)
-
-    print(f"\n{Fore.CYAN}Total tasks decomposed:{Style.RESET_ALL} {len(all_tasks)}")
-
-    if not _ask_yn("\nApprove these tasks to proceed to pricing?"):
-        print("Tasks rejected. Exiting — re-run to restart.")
-        sys.exit(0)
-
-    draft = revise_draft(draft, tasks=all_tasks)
-    return approve_draft(draft)
+        tasks.extend(category_tasks or [])
+    return _review_tasks(draft, tasks, model, source_documents, progress)
 
 
-def _phase_pricing(draft: QuotationDraft) -> tuple[Any, list[Any] | None]:
-    """Phase 4 — Show pricing summary and optionally configure modules."""
+def _phase_pricing(draft: QuotationDraft) -> QuoteResult | None:
+    """Phase 4 — Show pricing; return the quote, or None to go back to the tasks."""
     _header("Phase 4 — Pricing")
 
-    quote = calculate_quote(draft)
+    try:
+        quote = calculate_quote(draft)
+    except QuotationCalculationError as exc:
+        _warn(f"Cannot calculate the quote: {exc}. Returning to task review.")
+        return None
+
     _info("Total hours", str(quote.effort.total_hours))
     _info("Calendar days (3h/day)", str(quote.effort.calendar_days))
     _info("Minimum", f"S/ {quote.minimum_amount}")
@@ -259,11 +487,14 @@ def _phase_pricing(draft: QuotationDraft) -> tuple[Any, list[Any] | None]:
     for payment in quote.payment_schedule.payments:
         _bullet(f"{payment.label} — S/ {payment.amount}")
 
-    if not _ask_yn("\nAccept this quote to generate the proposal?"):
+    choice = _ask_choice(
+        "Quote decision",
+        {"a": "Accept", "b": "Back to tasks to adjust and recalculate", "q": "Quit"},
+    )
+    if choice == "q":
         print("Quote rejected. Exiting.")
         sys.exit(0)
-
-    return quote, None
+    return quote if choice == "a" else None
 
 
 def _phase_generate(
@@ -274,6 +505,7 @@ def _phase_generate(
     model: Any,
     project_name: str,
     provider_name: str,
+    progress: ProgressReporter | None = None,
 ) -> None:
     """Phase 5 — Generate internal DOCX and client-facing commercial DOCX."""
     _header("Phase 5 — Generating proposal documents")
@@ -299,13 +531,17 @@ def _phase_generate(
     _success(f"Internal proposal: {internal_docs.docx_path}")
 
     # --- Commercial (client-facing) proposal ---
-    print(f"\n{Fore.CYAN}Synthesizing client-facing commercial proposal...{Style.RESET_ALL}")
+    print()
     commercial = synthesize_commercial_proposal(
         draft,
         quote,
         project_name=project_name,
         provider_name=provider_name,
-        model=model,
+        agent=track(
+            create_commercial_synthesis_agent(model),
+            progress or ProgressReporter(),
+            _agent_label("Commercial synthesis agent", model),
+        ),
     )
 
     commercial_docs = generate_commercial_proposal_documents(
@@ -415,16 +651,18 @@ def main() -> None:
         sys.exit(1)
 
     # Phase 1: Intake
-    draft = _phase_intake(model, source_documents)
+    progress = ProgressReporter()
+    draft = _phase_intake(model, source_documents, progress)
 
     # Phase 2: Scope review
-    draft = _phase_review_draft(draft)
+    scope = _phase_review_draft(draft, model, source_documents, progress)
 
     # Phase 3: Technical decomposition
-    draft = _phase_decompose(draft, model, source_documents)
+    draft = _phase_decompose(scope, model, source_documents, progress)
 
-    # Phase 4: Pricing
-    quote, modules = _phase_pricing(draft)
+    # Phase 4: Pricing; going back re-opens task review, then recalculates
+    while (quote := _phase_pricing(draft)) is None:
+        draft = _review_tasks(scope, list(draft.tasks), model, source_documents, progress)
 
     # Resolve project name
     project_name = args.project_name or (
@@ -441,6 +679,7 @@ def main() -> None:
         model,
         project_name,
         args.provider_name,
+        progress,
     )
 
 
