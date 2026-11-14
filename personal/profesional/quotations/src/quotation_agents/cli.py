@@ -123,13 +123,8 @@ def _agent_label(name: str, model: Any, progress: ProgressReporter) -> str:
     return f"{name} {progress.separator} {model_name}"
 
 
-def _phase_intake(
-    model: Any,
-    source_documents: tuple[SourceDocument, ...] = (),
-    progress: ProgressReporter | None = None,
-) -> QuotationDraft:
-    """Phase 1 — Gather client info and infer requirements with the LLM."""
-    _header("Phase 1 — Project intake")
+def _ask_intake() -> tuple[str, str]:
+    """Ask for the client name and the free-text project description."""
 
     client = _ask("Client / company name")
     if not client:
@@ -155,6 +150,17 @@ def _phase_intake(
     if not request:
         print("Project description is required.")
         sys.exit(1)
+    return client, request
+
+
+def _infer_intake(
+    client: str,
+    request: str,
+    model: Any,
+    source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
+) -> QuotationDraft:
+    """Infer requirements for the given intake answers with the LLM."""
 
     if source_documents:
         print("\nAttached requirement documents:")
@@ -184,6 +190,18 @@ def _phase_intake(
         approval_state=ApprovalState.PENDING,
     )
     return draft
+
+
+def _phase_intake(
+    model: Any,
+    source_documents: tuple[SourceDocument, ...] = (),
+    progress: ProgressReporter | None = None,
+) -> QuotationDraft:
+    """Phase 1 — Gather client info and infer requirements with the LLM."""
+    _header("Phase 1 — Project intake")
+
+    client, request = _ask_intake()
+    return _infer_intake(client, request, model, source_documents, progress)
 
 
 def _ask_choice(prompt: str, choices: dict[str, str]) -> str:

@@ -109,3 +109,27 @@ def test_profile_source_document_name():
 
     assert document.name == "developer_profile.md"
     assert "Python" in document.text
+
+
+def test_load_profile_non_utf8_raises_profile_error(tmp_path):
+    from quotation_agents.profile import load_profile
+
+    path = tmp_path / "profile.md"
+    path.write_bytes("---\nstack: [Python]\n---\n## Conventions\nAcentuación\n".encode("latin-1"))
+
+    with pytest.raises(ProfileError, match="profile.md"):
+        load_profile(path)
+
+
+def test_render_keeps_hand_written_sections_before_conventions():
+    text = (
+        "---\nstack: [Python]\n---\n## Clients\nCableclub, Acme\n\n"
+        "## Conventions\nUse trunk-based dev.\n"
+    )
+
+    profile = apply_edit(parse_profile(text), _edit("tools", "add", "n8n"))
+    rendered = render_profile(profile)
+
+    assert "## Clients\nCableclub, Acme" in rendered
+    assert parse_profile(rendered).conventions == "Use trunk-based dev."
+    assert parse_profile(rendered) == profile

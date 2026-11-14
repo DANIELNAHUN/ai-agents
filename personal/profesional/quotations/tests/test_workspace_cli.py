@@ -237,3 +237,20 @@ def test_profile_command_adds_approved_learned_suggestion(monkeypatch, tmp_path)
     workspace_cli.cmd_profile(tmp_path, lambda: object())
 
     assert "n8n" in load_profile(base_profile_path(tmp_path)).project_kinds
+
+
+def test_profile_command_keeps_told_edits_when_learning_fails(monkeypatch, tmp_path):
+    save_profile(base_profile_path(tmp_path), PROFILE_TEMPLATE)
+    create_workspace(tmp_path, "CRM", "crm", PROFILE_TEMPLATE, NOW)
+    (tmp_path / "_profile" / "learned.json").write_text("{", encoding="utf-8")
+    edits = [{"field": "tools", "action": "add", "value": "n8n", "reason": "adopted"}]
+    monkeypatch.setattr(
+        workspace_cli, "create_profile_edit_agent", SequenceAgentFactory([{"edits": edits}])
+    )
+    _feed_input(monkeypatch, ["I use n8n now", "y"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        workspace_cli.cmd_profile(tmp_path, lambda: object())
+
+    assert exit_info.value.code == 1
+    assert "n8n" in load_profile(base_profile_path(tmp_path)).tools

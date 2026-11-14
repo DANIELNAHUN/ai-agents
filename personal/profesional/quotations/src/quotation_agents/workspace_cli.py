@@ -25,13 +25,14 @@ from .cli import (
     _ask,
     _ask_choice,
     _ask_feedback,
+    _ask_intake,
     _ask_yn,
     _bullet,
     _header,
+    _infer_intake,
     _info,
     _phase_decompose,
     _phase_generate,
-    _phase_intake,
     _phase_pricing,
     _phase_review_draft,
     _review_tasks,
@@ -465,6 +466,38 @@ def _generate_version(
     )
 
 
+def _run_intake(
+    paths: WorkspacePaths,
+    state: WorkspaceState,
+    models: ModelFactory,
+    docs: tuple[SourceDocument, ...],
+    progress: ProgressReporter,
+    now: Clock,
+) -> WorkspaceState:
+    """Ask the intake questions once, save the answers, then infer the scope."""
+
+    _header("Phase 1 — Project intake")
+    if state.client_company is None or state.original_request is None:
+        client, request = _ask_intake()
+        state = _save(
+            paths,
+            state.model_copy(update={"client_company": client, "original_request": request}),
+            now,
+        )
+    else:
+        _info("Client", state.client_company)
+    try:
+        draft = _infer_intake(
+            state.client_company, state.original_request, models(), docs, progress
+        )
+    except Exception as exc:  # answers are saved; the next resume retries inference
+        _fail(
+            f"Requirement inference failed: {_describe_failure(exc)}\n"
+            "Your intake answers were saved; run resume again to retry."
+        )
+    return state.model_copy(update={"draft": draft, "phase": Phase.SCOPE_REVIEW})
+
+
 def _run_phases(
     paths: WorkspacePaths,
     state: WorkspaceState,
@@ -480,28 +513,28 @@ def _run_phases(
         docs = context_documents(state, profile)
         decided: list[str] = []
         if state.phase is Phase.INTAKE:
-            draft = _phase_intake(models(), docs, progress)
-            state = state.model_copy(update={"draft": draft, "phase": Phase.SCOPE_REVIEW})
-            decided.append(f"Intake recorded for {draft.client_company}.")
+            state = _run_intake(paths, state, models, docs, progress, now)
+            decided.append(f"Intake recorded for {state.draft.client_company}.")
         elif state.phase is Phase.SCOPE_REVIEW:
             scope = _phase_review_draft(state.draft, models(), docs, progress)
-            if state.revise_tasks_for_new_scope and scope.tasks:
-                scope = _revise_for_new_scope(scope, models, docs, progress)
-            state = state.model_copy(
-                update={
-                    "draft": scope,
-                    "phase": Phase.DECOMPOSITION,
-                    "revise_tasks_for_new_scope": False,
-                }
-            )
+            # Saved before any task revision, so the approval survives a crash there.
+            state = state.model_copy(update={"draft": scope, "phase": Phase.DECOMPOSITION})
             decided.append(f"Scope approved ({len(scope.inferred_scope)} items).")
         elif state.phase is Phase.DECOMPOSITION:
             scope = state.draft
+            if state.revise_tasks_for_new_scope and scope.tasks:
+                scope = _revise_for_new_scope(scope, models, docs, progress)
             if scope.tasks:
                 draft = _review_tasks(scope, list(scope.tasks), models(), docs, progress)
             else:
                 draft = _phase_decompose(scope, models(), docs, progress)
-            state = state.model_copy(update={"draft": draft, "phase": Phase.PRICING})
+            state = state.model_copy(
+                update={
+                    "draft": draft,
+                    "phase": Phase.PRICING,
+                    "revise_tasks_for_new_scope": False,
+                }
+            )
             decided.append(f"Tasks approved: {len(draft.tasks)} tasks, {_hours(draft)} h.")
         elif (quote := _phase_pricing(state.draft)) is None:
             draft = _review_tasks(state.draft, list(state.draft.tasks), models(), docs, progress)
@@ -608,6 +641,14 @@ def _learned_changes(
     return profile
 
 
+def _save_base_profile(
+    root: Path, before: DeveloperProfile, after: DeveloperProfile
+) -> None:
+    if after != before:
+        save_profile(base_profile_path(root), after)
+        _success(f"Base profile updated: {base_profile_path(root)}")
+
+
 def cmd_profile(root: Path, model_factory: ModelFactory) -> None:
     """Improve the base profile from what you tell it and from past quotations."""
 
@@ -617,12 +658,11 @@ def cmd_profile(root: Path, model_factory: ModelFactory) -> None:
         original = profile
         print_profile(profile)
         profile = _told_changes(profile, model_factory)
-        profile = _learned_changes(root, profile, model_factory)
+        _save_base_profile(root, original, profile)
+        learned = _learned_changes(root, profile, model_factory)
+        _save_base_profile(root, profile, learned)
     except (ProfileError, ProfileAgentError) as exc:
         _fail(str(exc))
-    if profile != original:
-        save_profile(base_profile_path(root), profile)
-        _success(f"Base profile updated: {base_profile_path(root)}")
 
 
 # ---------------------------------------------------------------------------

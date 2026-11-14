@@ -130,3 +130,19 @@ def test_gitignore_ignores_quotes():
     lines = (PACKAGE_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
     assert "quotes/" in lines
+
+
+def test_list_workspaces_reports_non_utf8_and_naive_dates(tmp_path):
+    create_workspace(tmp_path, "Good", "good", PROFILE_TEMPLATE, NOW)
+    latin = create_workspace(tmp_path, "Latin", "latin", PROFILE_TEMPLATE, NOW)
+    valid = latin.state.read_text(encoding="utf-8").encode("utf-8")
+    latin.state.write_bytes(valid + "é".encode("latin-1"))
+    naive = create_workspace(tmp_path, "Naive", "naive", PROFILE_TEMPLATE, NOW)
+    naive.state.write_text(
+        naive.state.read_text(encoding="utf-8").replace("Z\"", "\""), encoding="utf-8"
+    )
+
+    summaries = list_workspaces(tmp_path)
+
+    assert summaries[0].slug == "good"
+    assert {summary.slug for summary in summaries if summary.error} == {"latin", "naive"}

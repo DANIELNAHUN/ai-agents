@@ -49,6 +49,8 @@ class DeveloperProfile(BaseModel):
     mcps: list[str] = Field(default_factory=list)
     project_kinds: list[str] = Field(default_factory=list)
     team: list[TeamMember] = Field(default_factory=list)
+    # Hand-written Markdown placed before the Conventions section, kept verbatim.
+    sections: str = ""
     conventions: str = ""
 
 
@@ -102,8 +104,10 @@ def parse_profile(text: str, *, source: str = "profile.md") -> DeveloperProfile:
         raise ProfileError(f"{source}: frontmatter must be a mapping of fields")
 
     body = "\n".join(lines[end + 1 :])
-    if CONVENTIONS_HEADING in body:
-        data["conventions"] = body.split(CONVENTIONS_HEADING, 1)[1].strip()
+    before, heading, after = body.partition(CONVENTIONS_HEADING)
+    data["sections"] = before.strip() if heading else body.strip()
+    if heading:
+        data["conventions"] = after.strip()
 
     try:
         return DeveloperProfile.model_validate(data)
@@ -114,14 +118,15 @@ def parse_profile(text: str, *, source: str = "profile.md") -> DeveloperProfile:
 def render_profile(profile: DeveloperProfile) -> str:
     """Render a profile as Markdown with YAML frontmatter."""
 
-    data = profile.model_dump(mode="json", exclude={"conventions"})
+    data = profile.model_dump(mode="json", exclude={"conventions", "sections"})
     data["team"] = [
         {key: value for key, value in member.items() if value is not None}
         for member in data["team"]
     ]
     frontmatter = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    sections = f"{profile.sections}\n\n" if profile.sections else ""
     return (
-        f"{FRONTMATTER_DELIMITER}\n{frontmatter}{FRONTMATTER_DELIMITER}\n"
+        f"{FRONTMATTER_DELIMITER}\n{frontmatter}{FRONTMATTER_DELIMITER}\n{sections}"
         f"{CONVENTIONS_HEADING}\n{profile.conventions}\n"
     )
 
@@ -133,6 +138,8 @@ def load_profile(path: Path) -> DeveloperProfile:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ProfileError(f"{path}: cannot read profile: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ProfileError(f"{path}: file is not UTF-8 encoded") from exc
     return parse_profile(text, source=str(path))
 
 

@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from .models import ApprovalState, QuotationDraft
 from .pricing import QuoteResult
@@ -55,7 +61,7 @@ class DocumentRecord(BaseModel):
     status: Literal["active", "removed", "unreadable"]
     digest: DocumentDigest | None = None
     error: str | None = None
-    updated_at: datetime
+    updated_at: AwareDatetime
 
 
 class GeneratedVersion(BaseModel):
@@ -64,7 +70,7 @@ class GeneratedVersion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     number: int = Field(gt=0)
-    created_at: datetime
+    created_at: AwareDatetime
     total: Decimal
     path: str
 
@@ -76,15 +82,23 @@ class WorkspaceState(BaseModel):
 
     name: str = Field(min_length=1)
     slug: str = Field(min_length=1)
-    created_at: datetime
-    updated_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
     phase: Phase = Phase.INTAKE
     session_count: int = Field(default=0, ge=0)
+    client_company: str | None = None
+    original_request: str | None = None
     draft: QuotationDraft | None = None
     quote: QuoteResult | None = None
     revise_tasks_for_new_scope: bool = False
     documents: list[DocumentRecord] = Field(default_factory=list)
     versions: list[GeneratedVersion] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_phase_has_draft(self) -> "WorkspaceState":
+        if self.phase is not Phase.INTAKE and self.draft is None:
+            raise ValueError(f"phase {self.phase.value!r} requires a draft, but draft is null")
+        return self
 
 
 def is_past(phase: Phase, reference: Phase) -> bool:
@@ -100,6 +114,8 @@ def load_state(path: Path) -> WorkspaceState:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise StateError(f"{path}: cannot read state file: {exc.strerror}") from exc
+    except UnicodeDecodeError as exc:
+        raise StateError(f"{path}: file is not UTF-8 encoded") from exc
     try:
         return WorkspaceState.model_validate_json(text)
     except ValidationError as exc:

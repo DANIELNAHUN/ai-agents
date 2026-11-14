@@ -140,6 +140,10 @@ team:
 Free text the agents should know.
 ```
 
+Hand-written sections placed before `## Conventions` (for example `## Clients`) are kept
+when the agents update the profile; comments inside the YAML frontmatter are not. Save
+the file as UTF-8.
+
 The profile guides requirement inference and task decomposition (technologies, tools,
 conventions). It does not change pricing: hourly rates stay in `rates.py`. A team member's
 optional `rate_per_hour` is stored for the future but not used yet.

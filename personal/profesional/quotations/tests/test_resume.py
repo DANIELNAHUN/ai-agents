@@ -72,7 +72,11 @@ class Recorder:
 
             return Agent()
 
-        def intake(model, docs, progress):
+        def ask_intake():
+            recorder.calls.append("ask_intake")
+            return "Cableclub", "Campaign system"
+
+        def intake(client, request, model, docs, progress):
             recorder.calls.append("intake")
             recorder.docs = docs
             return pending_draft()
@@ -107,7 +111,8 @@ class Recorder:
             (output_dir / "quotation-commercial.docx").write_bytes(b"commercial")
 
         monkeypatch.setattr(workspace_cli, "create_digest_agent", digest_factory)
-        monkeypatch.setattr(workspace_cli, "_phase_intake", intake)
+        monkeypatch.setattr(workspace_cli, "_ask_intake", ask_intake)
+        monkeypatch.setattr(workspace_cli, "_infer_intake", intake)
         monkeypatch.setattr(workspace_cli, "_phase_review_draft", review_draft)
         monkeypatch.setattr(workspace_cli, "_phase_decompose", decompose)
         monkeypatch.setattr(workspace_cli, "_review_tasks", review_tasks)
@@ -253,7 +258,7 @@ def test_resume_without_slug_picks_from_list(monkeypatch, tmp_path, capsys):
         recorder.calls.append("intake")
         raise SystemExit(0)
 
-    monkeypatch.setattr(workspace_cli, "_phase_intake", quit_intake)
+    monkeypatch.setattr(workspace_cli, "_infer_intake", quit_intake)
     _feed_input(monkeypatch, ["9", "1"])
 
     with pytest.raises(SystemExit):
@@ -288,3 +293,57 @@ def test_resume_unknown_workspace_exits_with_message(tmp_path, capsys):
 
     assert exit_info.value.code == 1
     assert "Workspace not found" in capsys.readouterr().out
+
+
+def test_reopened_scope_approval_survives_quit_during_task_revision(monkeypatch, paths):
+    recorder = Recorder(monkeypatch)
+    _set_state(paths, phase=Phase.PRICING, draft=approved_with_tasks())
+    original_revise = workspace_cli._revise_category
+
+    def quit_revise(*_args, **_kwargs):
+        raise SystemExit(0)
+
+    monkeypatch.setattr(workspace_cli, "_revise_category", quit_revise)
+    _feed_input(monkeypatch, ["s"])
+
+    with pytest.raises(SystemExit):
+        _resume(paths.root.parent)
+
+    state = load_state(paths.state)
+    assert state.phase is Phase.DECOMPOSITION
+    assert state.draft.approval_state == "approved"
+    assert state.revise_tasks_for_new_scope is True
+
+    monkeypatch.setattr(workspace_cli, "_revise_category", original_revise)
+    recorder.calls.clear()
+    _feed_input(monkeypatch, ["c"])
+    _resume(paths.root.parent)
+
+    assert recorder.calls[:2] == ["review_tasks", "pricing"]
+    assert [category for category, _f, _t in recorder.revisions] == list(WorkCategory)
+    assert load_state(paths.state).revise_tasks_for_new_scope is False
+
+
+def test_intake_answers_survive_inference_failure(monkeypatch, paths, capsys):
+    recorder = Recorder(monkeypatch)
+
+    def failing_intake(*_args):
+        raise RuntimeError("provider timeout")
+
+    monkeypatch.setattr(workspace_cli, "_infer_intake", failing_intake)
+
+    with pytest.raises(SystemExit) as exit_info:
+        _resume(paths.root.parent)
+
+    assert exit_info.value.code == 1
+    assert "provider timeout" in capsys.readouterr().out
+    state = load_state(paths.state)
+    assert state.phase is Phase.INTAKE
+    assert (state.client_company, state.original_request) == ("Cableclub", "Campaign system")
+
+    monkeypatch.setattr(workspace_cli, "_infer_intake", lambda *a: pending_draft())
+    recorder.calls.clear()
+    _resume(paths.root.parent)
+
+    assert "ask_intake" not in recorder.calls
+    assert load_state(paths.state).phase is Phase.GENERATED

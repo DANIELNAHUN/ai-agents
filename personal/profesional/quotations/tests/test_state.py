@@ -131,3 +131,33 @@ def test_reopen_decomposition_keeps_scope_approved():
     assert reopened.draft.approval_state is ApprovalState.APPROVED
     assert reopened.quote is None
     assert reopened.revise_tasks_for_new_scope is False
+
+
+def test_load_state_non_utf8_names_file(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_bytes('{"name": "café"}'.encode("latin-1"))
+
+    with pytest.raises(StateError, match="state.json"):
+        load_state(path)
+
+
+def test_load_state_rejects_naive_datetime(tmp_path):
+    path = tmp_path / "state.json"
+    save_state(path, full_state())
+    text = path.read_text(encoding="utf-8")
+    naive = text.replace('"2026-11-14T10:00:00Z"', '"2026-11-14T10:00:00"', 1)
+    path.write_text(naive, encoding="utf-8")
+
+    with pytest.raises(StateError, match="created_at"):
+        load_state(path)
+
+
+def test_load_state_requires_draft_after_intake(tmp_path):
+    path = tmp_path / "state.json"
+    state = WorkspaceState(name="X", slug="x", created_at=NOW, updated_at=NOW)
+    save_state(path, state)
+    data = path.read_text(encoding="utf-8").replace('"intake"', '"decomposition"')
+    path.write_text(data, encoding="utf-8")
+
+    with pytest.raises(StateError, match="draft"):
+        load_state(path)
