@@ -213,3 +213,10 @@ def test_inference_without_feedback_sends_only_system_and_data_messages() -> Non
     infer_requirements("Example Ltd", REQUEST, invoke=fake_invoke)
 
     assert len(seen["messages"]) == 2
+
+
+def test_inference_prompt_explains_developer_profile():
+    from quotation_agents.inference import INFERENCE_SYSTEM_PROMPT
+
+    assert "developer_profile.md" in INFERENCE_SYSTEM_PROMPT
+    assert "(digest)" in INFERENCE_SYSTEM_PROMPT

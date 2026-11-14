@@ -41,6 +41,11 @@ previous tasks by their number. The same feedback may be sent to every
 category: when it does not concern the requested category, return the previous
 tasks unchanged. To remove a task, omit it from the list; never return 0 hours.
 Return only the structured response.
+
+A source document named developer_profile.md describes the provider's own stack,
+tools, team and conventions. Use it to choose technologies and shape the work, but
+never treat it as client requirements. Documents whose name ends in "(digest)" are
+summaries of the client's draft files.
 """
 
 INPUT_DATA_START = "<quotation_input_data>"
