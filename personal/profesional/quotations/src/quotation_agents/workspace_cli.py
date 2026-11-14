@@ -10,25 +10,45 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
+from .attachments import SourceDocument
 from .cli import (
     Fore,
     Style,
     _ask,
+    _ask_choice,
     _ask_feedback,
     _ask_yn,
     _bullet,
     _header,
     _info,
+    _phase_decompose,
+    _phase_generate,
+    _phase_intake,
+    _phase_pricing,
+    _phase_review_draft,
+    _review_tasks,
+    _revise_category,
     _success,
     _warn,
 )
-from .notes import append_section
+from .ingestion import (
+    IngestionResult,
+    context_documents,
+    create_digest_agent,
+    digest_document,
+    ingest_documents,
+)
+from .models import QuotationDraft, WorkCategory
+from .notes import append_section, digest_lines, start_session
+from .pricing import QuoteResult
 from .profile import (
     PROFILE_TEMPLATE,
     DeveloperProfile,
@@ -39,20 +59,40 @@ from .profile import (
     save_profile,
 )
 from .profile_agent import create_profile_edit_agent, propose_profile_edits
+from .progress import ProgressReporter, track
 from .provider import create_configured_model
+from .state import (
+    DocumentDigest,
+    GeneratedVersion,
+    Phase,
+    StateError,
+    WorkspaceState,
+    is_past,
+    load_state,
+    reopen,
+    save_state,
+)
 from .workspace import (
     MAX_SLUG_LENGTH,
+    WorkspaceError,
     WorkspacePaths,
     base_profile_path,
     create_slug_agent,
     create_workspace,
     list_workspaces,
+    open_workspace,
     resolve_root,
     slugify,
     suggest_slug,
     truncate_slug,
     unique_slug,
 )
+
+SCOPE_CHANGED_FEEDBACK = (
+    "The approved scope changed. Revise these tasks so they match the new scope: keep tasks "
+    "that still apply, adjust hours, add missing work, and remove tasks that no longer apply."
+)
+VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
 
 Clock = Callable[[], datetime]
 ModelFactory = Callable[[], Any]
@@ -228,6 +268,283 @@ def cmd_list(root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# resume
+# ---------------------------------------------------------------------------
+
+def next_version_number(output_dir: Path) -> int:
+    """1 + the highest existing ``vN`` folder; other names are ignored."""
+
+    if not output_dir.is_dir():
+        return 1
+    numbers = [
+        int(match.group(1))
+        for path in output_dir.iterdir()
+        if path.is_dir() and (match := VERSION_FOLDER.match(path.name))
+    ]
+    return max(numbers, default=0) + 1
+
+
+def write_snapshot(version_dir: Path, draft: QuotationDraft, quote: QuoteResult) -> None:
+    """Keep the approved data behind a generated version for later comparison."""
+
+    snapshot = {"draft": draft.model_dump(mode="json"), "quote": quote.model_dump(mode="json")}
+    (version_dir / "snapshot.json").write_text(
+        json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _fail(message: str) -> NoReturn:
+    print(f"\n{Fore.RED}{message}{Style.RESET_ALL}")
+    sys.exit(1)
+
+
+def _pick_slug(root: Path) -> str:
+    choices = [summary for summary in list_workspaces(root) if summary.error is None]
+    if not choices:
+        print('No quotations yet. Run: uv run quotation setup "<name>"')
+        sys.exit(0)
+    _header("Choose a quotation")
+    for number, summary in enumerate(choices, start=1):
+        print(f"  {number}. {summary.slug} — {summary.name} ({summary.phase})")
+    while True:
+        answer = _ask("Quotation number")
+        if answer.isdigit() and 1 <= int(answer) <= len(choices):
+            return choices[int(answer) - 1].slug
+        _warn(f"Choose a number between 1 and {len(choices)}.")
+
+
+def _save(paths: WorkspacePaths, state: WorkspaceState, now: Clock) -> WorkspaceState:
+    state = state.model_copy(update={"updated_at": now()})
+    save_state(paths.state, state)
+    return state
+
+
+def _ingestion_notes(state: WorkspaceState, result: IngestionResult) -> list[str]:
+    records = {record.name: record for record in state.documents}
+    lines: list[str] = []
+    for name in result.added + result.changed:
+        digest = records[name].digest
+        if digest is None:
+            continue
+        first, *rest = digest_lines(name, digest)
+        prefix = "Updated " if name in result.changed else ""
+        lines.extend([prefix + first, *rest])
+    lines.extend(f"{name}: removed from documentations/" for name in result.removed)
+    lines.extend(f"{name}: unreadable ({error})" for name, error in result.unreadable)
+    return lines
+
+
+def _ingest(
+    paths: WorkspacePaths,
+    state: WorkspaceState,
+    models: ModelFactory,
+    progress: ProgressReporter,
+    now: Clock,
+) -> tuple[WorkspaceState, IngestionResult]:
+    def digest(document: SourceDocument) -> DocumentDigest:
+        agent = track(create_digest_agent(models()), progress, f"Digest agent [{document.name}]")
+        return digest_document(document, agent=agent)
+
+    state, result = ingest_documents(paths, state, digest=digest, now=now())
+    append_section(paths.notes, "Discovered", _ingestion_notes(state, result))
+    for name, error in result.failed:
+        _warn(f"Could not summarize {name}: {error}. It will be retried next time.")
+    for name, error in result.unreadable:
+        _warn(f"Skipped {name}: {error}")
+    return _save(paths, state, now), result
+
+
+def _hours(draft: QuotationDraft) -> str:
+    return str(sum(task.estimated_hours or 0 for task in draft.tasks))
+
+
+def _print_where_left_off(state: WorkspaceState) -> None:
+    _header(f"{state.name} — session {state.session_count}")
+    _info("Phase", state.phase.value)
+    active = [record for record in state.documents if record.status == "active"]
+    _info("Documents", str(len(active)))
+    if state.draft is not None:
+        _info("Client", state.draft.client_company)
+        _info("Scope items", str(len(state.draft.inferred_scope)))
+        if state.draft.tasks:
+            _info("Tasks", f"{len(state.draft.tasks)} ({_hours(state.draft)} h)")
+    for version in state.versions:
+        _bullet(f"v{version.number} — {version.created_at.date()} — S/ {version.total}")
+
+
+def _choose_reopen(state: WorkspaceState, result: IngestionResult) -> WorkspaceState | None:
+    """Offer to go back to an earlier phase; None means quit."""
+
+    if not is_past(state.phase, Phase.SCOPE_REVIEW):
+        return state
+    if result.has_new_content and _ask_yn(
+        "New or changed documents arrived. Reopen scope review?", default=True
+    ):
+        return reopen(state, Phase.SCOPE_REVIEW)
+
+    choices: dict[str, str] = {}
+    if state.phase is not Phase.GENERATED:
+        choices["c"] = "Continue"
+    choices["s"] = "Reopen scope"
+    if state.phase in (Phase.PRICING, Phase.GENERATED):
+        choices["t"] = "Reopen tasks"
+        choices["p"] = "Re-price and generate a new version"
+    choices["q"] = "Quit"
+    choice = _ask_choice("Next step", choices)
+    if choice == "q":
+        return None
+    if choice == "c":
+        return state
+    target = {"s": Phase.SCOPE_REVIEW, "t": Phase.DECOMPOSITION, "p": Phase.PRICING}[choice]
+    return reopen(state, target)
+
+
+def _revise_for_new_scope(
+    scope: QuotationDraft,
+    models: ModelFactory,
+    docs: tuple[SourceDocument, ...],
+    progress: ProgressReporter,
+) -> QuotationDraft:
+    tasks = []
+    for category in WorkCategory:
+        tasks += _revise_category(
+            scope,
+            list(scope.tasks),
+            category,
+            SCOPE_CHANGED_FEEDBACK,
+            models(),
+            docs,
+            progress,
+            failure_outcome=f"The previous {category.value} tasks were kept.",
+        )
+    return scope.model_copy(update={"tasks": tasks})
+
+
+def _generate_version(
+    paths: WorkspacePaths,
+    state: WorkspaceState,
+    quote: QuoteResult,
+    models: ModelFactory,
+    progress: ProgressReporter,
+    now: Clock,
+    options: dict[str, Any],
+) -> WorkspaceState:
+    number = next_version_number(paths.output)
+    version_dir = paths.output / f"v{number}"
+    version_dir.mkdir(parents=True)
+    _phase_generate(
+        state.draft,
+        quote,
+        version_dir,
+        options["language"],
+        models(),
+        options["project_name"] or state.name,
+        options["provider_name"],
+        progress,
+    )
+    write_snapshot(version_dir, state.draft, quote)
+    version = GeneratedVersion(
+        number=number,
+        created_at=now(),
+        total=quote.selected_amount,
+        path=f"output/v{number}",
+    )
+    return state.model_copy(
+        update={"quote": quote, "phase": Phase.GENERATED, "versions": [*state.versions, version]}
+    )
+
+
+def _run_phases(
+    paths: WorkspacePaths,
+    state: WorkspaceState,
+    profile: DeveloperProfile,
+    models: ModelFactory,
+    progress: ProgressReporter,
+    now: Clock,
+    options: dict[str, Any],
+) -> WorkspaceState:
+    """Run phases until a version is generated, checkpointing after each approval."""
+
+    while state.phase is not Phase.GENERATED:
+        docs = context_documents(state, profile)
+        decided: list[str] = []
+        if state.phase is Phase.INTAKE:
+            draft = _phase_intake(models(), docs, progress)
+            state = state.model_copy(update={"draft": draft, "phase": Phase.SCOPE_REVIEW})
+            decided.append(f"Intake recorded for {draft.client_company}.")
+        elif state.phase is Phase.SCOPE_REVIEW:
+            scope = _phase_review_draft(state.draft, models(), docs, progress)
+            if state.revise_tasks_for_new_scope and scope.tasks:
+                scope = _revise_for_new_scope(scope, models, docs, progress)
+            state = state.model_copy(
+                update={
+                    "draft": scope,
+                    "phase": Phase.DECOMPOSITION,
+                    "revise_tasks_for_new_scope": False,
+                }
+            )
+            decided.append(f"Scope approved ({len(scope.inferred_scope)} items).")
+        elif state.phase is Phase.DECOMPOSITION:
+            scope = state.draft
+            if scope.tasks:
+                draft = _review_tasks(scope, list(scope.tasks), models(), docs, progress)
+            else:
+                draft = _phase_decompose(scope, models(), docs, progress)
+            state = state.model_copy(update={"draft": draft, "phase": Phase.PRICING})
+            decided.append(f"Tasks approved: {len(draft.tasks)} tasks, {_hours(draft)} h.")
+        elif (quote := _phase_pricing(state.draft)) is None:
+            draft = _review_tasks(state.draft, list(state.draft.tasks), models(), docs, progress)
+            state = state.model_copy(update={"draft": draft})
+            decided.append(f"Tasks approved: {len(draft.tasks)} tasks, {_hours(draft)} h.")
+        else:
+            state = _generate_version(paths, state, quote, models, progress, now, options)
+            decided.append(f"Generated v{state.versions[-1].number}: S/ {quote.selected_amount}.")
+        append_section(paths.notes, "Decided", decided)
+        state = _save(paths, state, now)
+    return state
+
+
+def cmd_resume(
+    slug: str | None,
+    root: Path,
+    model_factory: ModelFactory,
+    *,
+    language: str,
+    provider_name: str,
+    project_name: str | None,
+    now: Clock = _utc_now,
+) -> None:
+    """Continue a quotation from its last checkpoint without re-reading documents."""
+
+    slug = slug or _pick_slug(root)
+    try:
+        paths = open_workspace(root, slug)
+        state = load_state(paths.state)
+        profile = load_profile(paths.profile)
+    except (WorkspaceError, StateError, ProfileError) as exc:
+        _fail(str(exc))
+
+    state = state.model_copy(update={"session_count": state.session_count + 1})
+    start_session(paths.notes, state.session_count, now().date())
+    state = _save(paths, state, now)
+
+    progress = ProgressReporter()
+    state, result = _ingest(paths, state, model_factory, progress, now)
+    _print_where_left_off(state)
+
+    reopened = _choose_reopen(state, result)
+    if reopened is None:
+        return
+    if reopened.phase is not state.phase:
+        append_section(paths.notes, "Decided", [f"Reopened {reopened.phase.value}."])
+        state = _save(paths, reopened, now)
+
+    options = {"language": language, "provider_name": provider_name, "project_name": project_name}
+    state = _run_phases(paths, state, profile, model_factory, progress, now, options)
+    _success(f"Quotation ready: {paths.root / state.versions[-1].path}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -325,6 +642,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         cmd_setup(args.name, root, models)
     elif args.command == "list":
         cmd_list(root)
+    elif args.command == "resume":
+        cmd_resume(
+            args.slug,
+            root,
+            models,
+            language=args.language,
+            provider_name=args.provider_name,
+            project_name=args.project_name,
+        )
     else:
         print(f"The {args.command!r} command is not available yet.")
         sys.exit(1)

@@ -150,6 +150,36 @@ optional `rate_per_hour` is stored for the future but not used yet.
 version and total. Folders with a missing or broken `state.json` are shown as `invalid`
 with the reason, so you can fix them by hand.
 
+### resume
+
+`resume` continues a quotation from its last checkpoint. Without a folder name it shows your
+quotations numbered so you can pick one. Each run is a new session in `notes.md`:
+
+1. New or changed files in `documentations/` are summarized (unchanged files are never read
+   again; a file that fails to summarize is retried next time).
+2. A short "where you left off" summary is printed from `state.json`.
+3. The workflow continues from the current phase: intake → scope review → task decomposition
+   → pricing → generation.
+
+Every approval is saved immediately, so quitting (or Ctrl+C) never loses approved work. The
+next `resume` starts where you stopped.
+
+When the scope is already approved, `resume` offers a menu:
+
+| Option | Effect |
+|---|---|
+| `c` Continue | Go on from the current phase (hidden once a version is generated) |
+| `s` Reopen scope | Review the scope again; approved tasks are kept as a draft, revised by the agents against the new scope, and shown to you for approval; pricing is recalculated |
+| `t` Reopen tasks | Review the approved tasks again, then re-price |
+| `p` Re-price | Recalculate the quote and generate a new version |
+| `q` Quit | Stop without changes |
+
+If new or changed documents arrived after the scope was approved, `resume` asks whether to
+reopen the scope review first.
+
+`--language`, `--provider-name`, and `--project-name` (default: the workspace name) apply
+to the generated documents.
+
 ### Draft documents
 
 Supported files are PDF, DOCX, Markdown, and UTF-8 TXT. Each file is read once and
@@ -205,10 +235,14 @@ previous result, and returns to the menu so you can retry, edit hours, or approv
 
 ### Output files
 
+Each generation writes a new version folder and never overwrites an earlier one:
+`output/v1/`, `output/v2/`, … Every version folder contains:
+
 | File | Audience | Content |
 |---|---|---|
 | `quotation-internal.docx` | You | Full technical breakdown: tasks, hours per category, pricing bands, assumptions, risks |
 | `quotation-commercial.docx` | Client | Business-language summary: modular components, cost table, payment milestones, deliverables |
+| `snapshot.json` | You | Approved scope, tasks, and quote behind this version, for comparing versions |
 
 ---
 
