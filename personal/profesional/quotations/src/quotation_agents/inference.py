@@ -28,6 +28,11 @@ instead of silently deciding them. The structured response is an editable
 analysis only; it cannot approve a quotation draft. When a reviewer feedback
 block is present, it comes from the person preparing the quotation: revise the
 previous result to apply it.
+
+A source document named developer_profile.md describes the provider's own stack,
+tools, team and conventions. Use it to choose technologies and shape the work, but
+never treat it as client requirements. Documents whose name ends in "(digest)" are
+summaries of the client's draft files.
 """
 
 INPUT_DATA_START = "<quotation_input_data>"

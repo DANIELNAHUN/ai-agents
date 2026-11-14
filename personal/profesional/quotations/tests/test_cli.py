@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import re
 from typing import Any
 
 import pytest
@@ -244,41 +243,6 @@ def test_pricing_accepts_or_goes_back_to_tasks(monkeypatch, answer, accepted):
 
     assert isinstance(result, QuoteResult) is accepted
     assert (result is None) is not accepted
-
-
-def test_main_goes_back_from_pricing_to_tasks_and_recalculates(monkeypatch, capsys, tmp_path):
-    backend_task = {"category": "backend", "description": "Claims inbox API"}
-    factory, agents = _decomposition_factory({WorkCategory.BACKEND: [[backend_task]]})
-    monkeypatch.setattr(cli, "create_decomposition_agent", factory)
-    monkeypatch.setattr(
-        cli,
-        "create_requirement_inference_agent",
-        lambda _model: FakeAgent({"inferred_scope": ["Claims inbox"]}),
-    )
-    monkeypatch.setattr(cli, "create_configured_model", lambda **_kwargs: RawChatModel())
-    monkeypatch.setattr("sys.argv", ["quotation", "--output", str(tmp_path)])
-    _feed_input(
-        monkeypatch,
-        [
-            "Cableclub", "Claims module", "", "",  # intake
-            "a",  # approve scope
-            "e", "1", "8", "a", "y",  # set missing hours, approve tasks
-            "b",  # back to tasks from pricing
-            "e", "1", "20", "a", "y",  # adjust hours, approve again
-            "q",  # quit at the recalculated quote
-        ],
-    )
-
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main()
-
-    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
-    assert exit_info.value.code == 0
-    assert output.count("Phase 4 — Pricing") == 2
-    assert "Total hours: 8" in output
-    assert "Total hours: 20" in output
-    assert len(agents[WorkCategory.BACKEND]) == 1
-    assert "Quote rejected. Exiting." in output
 
 
 class FailingAgent:

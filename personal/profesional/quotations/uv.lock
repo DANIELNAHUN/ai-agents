@@ -943,6 +943,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -959,6 +960,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.8.0,<3.0.0" },
     { name = "pypdf", specifier = ">=5.0.0,<7.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "pyyaml", specifier = ">=6.0,<7.0" },
 ]
 
 [package.metadata.requires-dev]

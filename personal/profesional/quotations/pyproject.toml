@@ -10,10 +10,11 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "colorama>=0.4.6",
     "pypdf>=5.0.0,<7.0.0",
+    "pyyaml>=6.0,<7.0",
 ]
 
 [project.scripts]
-quotation = "quotation_agents.cli:main"
+quotation = "quotation_agents.workspace_cli:main"
 
 [build-system]
 requires = ["hatchling"]

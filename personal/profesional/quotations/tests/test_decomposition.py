@@ -282,3 +282,10 @@ def test_decomposition_prompt_says_to_omit_removed_tasks_instead_of_zero_hours()
     assert "omit it from the list" in system_prompt
     assert "never return 0 hours" in system_prompt
     assert "by their number" in system_prompt
+
+
+def test_decomposition_prompt_explains_developer_profile():
+    from quotation_agents.decomposition import DECOMPOSITION_SYSTEM_PROMPT
+
+    assert "developer_profile.md" in DECOMPOSITION_SYSTEM_PROMPT
+    assert "(digest)" in DECOMPOSITION_SYSTEM_PROMPT

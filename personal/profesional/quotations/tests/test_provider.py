@@ -122,3 +122,41 @@ def test_create_configured_model_loads_dotenv_path_and_environment(
 
     assert calls[0]["model"] == "environment-model"
     assert calls[0]["api_key"] == "dotenv-key"
+
+
+def test_invoke_structured_validates_agent_response():
+    from pydantic import BaseModel
+
+    from quotation_agents.provider import invoke_structured
+
+    class Answer(BaseModel):
+        value: int
+
+    class Agent:
+        def invoke(self, request, config=None):
+            return {"structured_response": {"value": 3}}
+
+    assert invoke_structured(Agent(), [{"role": "user", "content": "x"}], Answer, ValueError) == (
+        Answer(value=3)
+    )
+
+
+def test_invoke_structured_raises_given_error_on_invalid_response():
+    import pytest
+    from pydantic import BaseModel
+
+    from quotation_agents.provider import invoke_structured
+
+    class Answer(BaseModel):
+        value: int
+
+    class Failure(ValueError):
+        pass
+
+    def agent(request):
+        return {"structured_response": {"value": "nope"}}
+
+    with pytest.raises(Failure):
+        invoke_structured(agent, [], Answer, Failure)
+    with pytest.raises(Failure):
+        invoke_structured(lambda request: {}, [], Answer, Failure)

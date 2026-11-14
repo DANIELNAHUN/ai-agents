@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
+
+from pydantic import BaseModel, ValidationError
 
 from .config import QuotationConfig, load_config
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class Invocation(Protocol):
@@ -125,3 +129,24 @@ def resolve_invocation(
             return model_invoke
         raise ProviderError("model must provide a callable invoke method")
     raise ProviderError("Pass an injected invoke callable or model")
+
+
+def invoke_structured(
+    agent: Any,
+    messages: list[dict[str, str]],
+    schema: type[ModelT],
+    error: type[Exception],
+) -> ModelT:
+    """Invoke an agent (or tracked callable) and validate its structured response."""
+
+    invocation = agent if callable(agent) else resolve_invocation(model=agent)
+    response = invocation({"messages": messages})
+    if not isinstance(response, Mapping) or "structured_response" not in response:
+        raise error("Provider response must include structured_response")
+    structured = response["structured_response"]
+    if isinstance(structured, BaseModel):
+        structured = structured.model_dump()
+    try:
+        return schema.model_validate(structured)
+    except ValidationError as exc:
+        raise error(f"Invalid structured response: {exc}") from exc

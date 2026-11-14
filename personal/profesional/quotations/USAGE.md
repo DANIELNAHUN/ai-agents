@@ -80,44 +80,132 @@ QUOTATION_API_KEY=your-key
 
 ---
 
-## Running the interactive CLI
+## Quotation workspaces
 
-From inside `personal/profesional/quotations/`:
+Each quotation lives in its own folder, so you can stop at any time and continue later
+without starting from zero. From inside `personal/profesional/quotations/`:
 
 ```bash
-# Default: saves to ./proposals/ in Spanish
-uv run quotation
-
-# Custom output directory
-uv run quotation --output ./out/proposals
-
-# Set the project name in the commercial proposal
-uv run quotation --project-name "Sistema de Campañas Cableclub"
-
-# Set your name as provider
-uv run quotation --provider-name "Daniel Calcina"
-
-# Use a specific .env file
-uv run quotation --dotenv /path/to/.env
-
-# Internal proposal language: es (default) or en
-uv run quotation --language es
-
-# Add requirement documents as context (repeat --attachment for each file)
-uv run quotation --attachment .\requirements.pdf --attachment .\scope.docx
-
-# All options combined
-uv run quotation \
-  --output ./proposals \
-  --project-name "Sistema de Campañas" \
-  --provider-name "Daniel Calcina" \
-  --language es
+uv run quotation setup "Sistema de Campañas Cableclub"   # create a workspace
+uv run quotation list                                    # see all your quotations
+uv run quotation resume sistema-de-campanas-cableclub    # continue where you left off
+uv run quotation profile                                 # improve your developer profile
 ```
 
-Attachments support PDF, DOCX, Markdown, and UTF-8 TXT files. The CLI extracts their
-text locally and sends it to the configured model during intake and task decomposition.
-Scanned PDFs need OCR before attachment. The document text is treated as source material,
-not as agent instructions.
+Every command accepts `--root DIR` (workspaces folder) and `--dotenv FILE`. Without
+`--root`, workspaces go to `$QUOTATION_WORKSPACES`, or to `quotes/` inside this package
+(git-ignored, because it holds client data). Running `uv run quotation` alone prints help.
+
+### Workspace layout
+
+```
+quotes/
+├── _profile/
+│   ├── profile.md          # your base developer profile
+│   └── learned.json        # which quotations the profile agent already reviewed
+└── sistema-de-campanas-cableclub/
+    ├── documentations/     # drop your draft files here (PDF, DOCX, MD, TXT)
+    ├── profile.md          # this project's editable copy of your profile
+    ├── notes.md            # what the agent discovered and what you decided
+    ├── state.json          # where you left off (phase, approved data, digests)
+    └── output/             # generated quotations, one folder per version
+```
+
+### setup
+
+`setup` asks for the quotation name when you omit it and proposes a folder name. Names
+whose folder name would exceed 40 characters are summarized by the model; you can accept
+the proposal or type another. An existing folder gets a numeric suffix (`crm-2`).
+
+The base profile is copied into the workspace. If you have none yet, setup offers to create
+one from a template. Setup then shows the profile and asks whether to adjust anything for
+this project (useful for collaborative projects): describe the change, and approve each edit
+the agent proposes. Only the project copy changes; decisions are logged in `notes.md`.
+
+### Developer profile
+
+`profile.md` is Markdown with YAML frontmatter, editable by hand:
+
+```markdown
+---
+stack: [Python, FastAPI, React]
+tools: [ClickUp, GitHub]
+mcps: [github, context7]
+project_kinds: [backend, fullstack, ai, n8n]
+team:
+- name: Daniel
+  role: fullstack
+---
+## Conventions
+Free text the agents should know.
+```
+
+Hand-written sections placed before `## Conventions` (for example `## Clients`) are kept
+when the agents update the profile; comments inside the YAML frontmatter are not. Save
+the file as UTF-8.
+
+The profile guides requirement inference and task decomposition (technologies, tools,
+conventions). It does not change pricing: hourly rates stay in `rates.py`. A team member's
+optional `rate_per_hour` is stored for the future but not used yet.
+
+### list
+
+`list` shows every workspace with its name, phase, last activity, and latest generated
+version and total. Folders with a missing or broken `state.json` are shown as `invalid`
+with the reason, so you can fix them by hand.
+
+### resume
+
+`resume` continues a quotation from its last checkpoint. Without a folder name it shows your
+quotations numbered so you can pick one. Each run is a new session in `notes.md`:
+
+1. New or changed files in `documentations/` are summarized (unchanged files are never read
+   again; a file that fails to summarize is retried next time).
+2. A short "where you left off" summary is printed from `state.json`.
+3. The workflow continues from the current phase: intake → scope review → task decomposition
+   → pricing → generation.
+
+Every approval is saved immediately, so quitting (or Ctrl+C) never loses approved work. The
+next `resume` starts where you stopped.
+
+When the scope is already approved, `resume` offers a menu:
+
+| Option | Effect |
+|---|---|
+| `c` Continue | Go on from the current phase (hidden once a version is generated) |
+| `s` Reopen scope | Review the scope again; approved tasks are kept as a draft, revised by the agents against the new scope, and shown to you for approval; pricing is recalculated |
+| `t` Reopen tasks | Review the approved tasks again, then re-price |
+| `p` Re-price | Recalculate the quote and generate a new version |
+| `q` Quit | Stop without changes |
+
+If new or changed documents arrived after the scope was approved, `resume` asks whether to
+reopen the scope review first.
+
+`--language`, `--provider-name`, and `--project-name` (default: the workspace name) apply
+to the generated documents.
+
+### profile
+
+`profile` improves your **base** profile (`quotes/_profile/profile.md`) in two ways:
+
+1. **What you tell it**: describe what changed ("I now use n8n", "Ana joined as frontend");
+   the agent proposes concrete edits and you approve each one.
+2. **What it learns from your quotations**: it reads the `notes.md` of quotations that
+   changed since its last review and suggests technologies, tools, MCPs, and project kinds
+   (backend, fullstack, AI, n8n, …) missing from your profile, with the quotations that
+   support each one. You approve each suggestion.
+
+Nothing is written without your approval, and project copies of the profile are never
+modified. `_profile/learned.json` remembers which quotations were reviewed and which
+suggestions were already shown, so a rejected suggestion is not offered again; a quotation
+is reviewed again only after its notes change.
+
+### Draft documents
+
+Supported files are PDF, DOCX, Markdown, and UTF-8 TXT. Each file is read once and
+summarized into a digest stored in `state.json` and `notes.md`; later runs reuse the
+digests instead of re-reading the files. Scanned PDFs need OCR first. Document text is
+treated as source material, not as agent instructions.
 
 ### Progress output
 
@@ -135,7 +223,7 @@ reasoning is not exposed. On a terminal the status is a single spinner line upda
 when output is redirected, each status change is printed once. Consoles that cannot render the
 symbols fall back to ASCII (`>`, `OK`, `FAIL`).
 
-If a step keeps waiting with large attachments, raise `QUOTATION_HTTP_TIMEOUT_SECONDS`
+If a step keeps waiting with large documents, raise `QUOTATION_HTTP_TIMEOUT_SECONDS`
 (default 15, maximum 120) in `.env`.
 
 ### Reviewing and correcting
@@ -167,10 +255,14 @@ previous result, and returns to the menu so you can retry, edit hours, or approv
 
 ### Output files
 
+Each generation writes a new version folder and never overwrites an earlier one:
+`output/v1/`, `output/v2/`, … Every version folder contains:
+
 | File | Audience | Content |
 |---|---|---|
 | `quotation-internal.docx` | You | Full technical breakdown: tasks, hours per category, pricing bands, assumptions, risks |
 | `quotation-commercial.docx` | Client | Business-language summary: modular components, cost table, payment milestones, deliverables |
+| `snapshot.json` | You | Approved scope, tasks, and quote behind this version, for comparing versions |
 
 ---
 
@@ -327,7 +419,14 @@ python -m compileall src tests
 ```
 quotations/
 ├── src/quotation_agents/
-│   ├── cli.py           # Interactive CLI entry point
+│   ├── cli.py           # Interactive workflow phases
+│   ├── workspace_cli.py # Entry point: setup, list, resume, profile
+│   ├── workspace.py     # Workspace folders, names and listing
+│   ├── state.py         # state.json model (phase, approved data, digests)
+│   ├── notes.py         # Append-only notes.md log
+│   ├── ingestion.py     # Document digests, read once
+│   ├── profile.py       # Developer profile file format
+│   ├── profile_agent.py # Profile edit and learning agents
 │   ├── commercial.py    # Commercial proposal models + synthesis agent
 │   ├── config.py        # Provider configuration (.env loading)
 │   ├── decomposition.py # LLM-powered task decomposition per category
