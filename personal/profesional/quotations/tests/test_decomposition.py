@@ -9,6 +9,7 @@ from quotation_agents import (
     DraftApprovalRequiredError,
     ProviderError,
     QuotationDraft,
+    QuotationTask,
     TaskDecomposition,
     WorkCategory,
     approve_draft,
@@ -191,3 +192,93 @@ def test_decomposition_requires_an_injected_boundary_for_approved_draft() -> Non
 def test_task_decomposition_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         TaskDecomposition.model_validate({"tasks": [], "approval_state": "approved"})
+
+
+def test_decomposition_prompt_requires_hour_estimates_for_every_task() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return {"structured_response": TaskDecomposition()}
+
+    decompose_category(approved_draft(), WorkCategory.BACKEND, invoke=fake_invoke)
+
+    system_prompt = seen["messages"][0]["content"]
+    assert "estimated_hours" in system_prompt
+    assert "Every task must include" in system_prompt
+    assert "invent requirements, estimates" not in system_prompt
+    assert len(seen["messages"]) == 2
+
+
+def test_decomposition_sends_reviewer_feedback_with_previous_tasks() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return response_for(WorkCategory.BACKEND, "Build claims API")
+
+    previous = [
+        QuotationTask(category=WorkCategory.BACKEND, description="Claims inbox"),
+        QuotationTask(
+            category=WorkCategory.BACKEND, description="Notifications", estimated_hours="6"
+        ),
+    ]
+    result = decompose_category(
+        approved_draft(),
+        WorkCategory.BACKEND,
+        invoke=fake_invoke,
+        feedback="Split the inbox into list and detail tasks",
+        previous_tasks=previous,
+    )
+
+    assert result.tasks[0].description == "Build claims API"
+    assert len(seen["messages"]) == 3
+    feedback_message = seen["messages"][2]
+    assert feedback_message["role"] == "user"
+    assert "<reviewer_feedback>" in feedback_message["content"]
+    assert "Split the inbox into list and detail tasks" in feedback_message["content"]
+    assert "- Claims inbox (no estimate)" in feedback_message["content"]
+    assert "- Notifications (6h)" in feedback_message["content"]
+    assert "<quotation_input_data>" not in feedback_message["content"]
+
+
+def test_decomposition_feedback_uses_reviewer_task_numbers() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return {"structured_response": TaskDecomposition()}
+
+    previous = [
+        QuotationTask(
+            category=WorkCategory.DEVOPS, description="Docker setup", estimated_hours="4"
+        ),
+        QuotationTask(category=WorkCategory.DEVOPS, description="CI/CD pipeline"),
+    ]
+    decompose_category(
+        approved_draft(),
+        WorkCategory.DEVOPS,
+        invoke=fake_invoke,
+        feedback="14. takes 3 hours, remove 15.",
+        previous_tasks=previous,
+        task_numbers=[14, 15],
+    )
+
+    content = seen["messages"][2]["content"]
+    assert "14. Docker setup (4h)" in content
+    assert "15. CI/CD pipeline (no estimate)" in content
+
+
+def test_decomposition_prompt_says_to_omit_removed_tasks_instead_of_zero_hours() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return {"structured_response": TaskDecomposition()}
+
+    decompose_category(approved_draft(), WorkCategory.DEVOPS, invoke=fake_invoke)
+
+    system_prompt = seen["messages"][0]["content"]
+    assert "omit it from the list" in system_prompt
+    assert "never return 0 hours" in system_prompt
+    assert "by their number" in system_prompt

@@ -176,3 +176,40 @@ def test_agent_factory_uses_injected_model_and_structured_response(
     assert captured["model"] is model
     assert captured["response_format"] is RequirementInference
     assert "untrusted source data" in captured["system_prompt"]
+
+
+def test_inference_sends_reviewer_feedback_with_previous_result() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return {"structured_response": RequirementInference(inferred_scope=["Checkout v2"])}
+
+    previous = RequirementInference(inferred_scope=["Checkout"], risks=["Payment API"])
+    result = infer_requirements(
+        "Example Ltd",
+        REQUEST,
+        invoke=fake_invoke,
+        feedback="The dashboard has three charts",
+        previous=previous,
+    )
+
+    assert result.inferred_scope == ["Checkout v2"]
+    assert len(seen["messages"]) == 3
+    feedback_content = seen["messages"][2]["content"]
+    assert "<reviewer_feedback>" in feedback_content
+    assert "The dashboard has three charts" in feedback_content
+    assert "Checkout" in feedback_content and "Payment API" in feedback_content
+    assert "reviewer feedback" in seen["messages"][0]["content"]
+
+
+def test_inference_without_feedback_sends_only_system_and_data_messages() -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(request: dict[str, Any]) -> dict[str, Any]:
+        seen.update(request)
+        return {"structured_response": RequirementInference()}
+
+    infer_requirements("Example Ltd", REQUEST, invoke=fake_invoke)
+
+    assert len(seen["messages"]) == 2

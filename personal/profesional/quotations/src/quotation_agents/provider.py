@@ -77,6 +77,31 @@ def create_configured_model(
     return ChatOpenAI(**kwargs)
 
 
+REVIEWER_FEEDBACK_START = "<reviewer_feedback>"
+REVIEWER_FEEDBACK_END = "</reviewer_feedback>"
+
+
+def reviewer_feedback_message(previous_result: str, feedback: str) -> dict[str, str]:
+    """Build the trusted message carrying the human reviewer's correction.
+
+    It is sent outside the untrusted input-data delimiters because it comes from
+    the person preparing the quotation, not from client-supplied source data.
+    """
+
+    content = "\n".join(
+        (
+            REVIEWER_FEEDBACK_START,
+            "Previous result:",
+            previous_result.strip() or "(empty)",
+            "",
+            "Reviewer feedback:",
+            feedback.strip(),
+            REVIEWER_FEEDBACK_END,
+        )
+    )
+    return {"role": "user", "content": content}
+
+
 def resolve_invocation(
     *,
     invoke: Invocation | None = None,

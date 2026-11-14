@@ -10,7 +10,12 @@ from pydantic import BaseModel, ValidationError
 
 from .attachments import SourceDocument, format_source_documents
 from .models import QuotationDraft, RequirementInference
-from .provider import Invocation, ProviderError, resolve_invocation
+from .provider import (
+    Invocation,
+    ProviderError,
+    resolve_invocation,
+    reviewer_feedback_message,
+)
 
 INFERENCE_SYSTEM_PROMPT = """You infer requirements for a quotation draft.
 
@@ -20,7 +25,9 @@ original request, or attached documents. Return only facts explicitly supported
 by that source data. Never invent requirements, scope, estimates, approvals, or
 other facts. Put missing or ambiguous details in assumptions, questions, or risks
 instead of silently deciding them. The structured response is an editable
-analysis only; it cannot approve a quotation draft.
+analysis only; it cannot approve a quotation draft. When a reviewer feedback
+block is present, it comes from the person preparing the quotation: revise the
+previous result to apply it.
 """
 
 INPUT_DATA_START = "<quotation_input_data>"
@@ -75,6 +82,8 @@ def _provider_request(
     client_company: str,
     original_request: str,
     source_documents: Sequence[SourceDocument] = (),
+    feedback: str | None = None,
+    previous: RequirementInference | None = None,
 ) -> dict[str, Any]:
     document_data = format_source_documents(source_documents)
     data = "\n".join(
@@ -86,12 +95,14 @@ def _provider_request(
             INPUT_DATA_END,
         )
     )
-    return {
-        "messages": [
-            {"role": "system", "content": INFERENCE_SYSTEM_PROMPT},
-            {"role": "user", "content": data},
-        ]
-    }
+    messages = [
+        {"role": "system", "content": INFERENCE_SYSTEM_PROMPT},
+        {"role": "user", "content": data},
+    ]
+    if feedback and feedback.strip():
+        previous_result = previous.model_dump_json(indent=2) if previous is not None else ""
+        messages.append(reviewer_feedback_message(previous_result, feedback))
+    return {"messages": messages}
 
 
 def _normalize_structured_response(response: Any) -> RequirementInference:
@@ -118,12 +129,24 @@ def infer_requirements(
     invoke: Invocation | None = None,
     model: Any | None = None,
     agent: Any | None = None,
+    feedback: str | None = None,
+    previous: RequirementInference | None = None,
 ) -> RequirementInference:
-    """Infer editable requirements through an explicitly injected boundary."""
+    """Infer editable requirements through an explicitly injected boundary.
+
+    ``feedback`` and ``previous`` ask the agent to revise an earlier inference
+    with the reviewer's correction.
+    """
 
     intake = _validate_intake(client_company, original_request)
     invocation = _resolve_inference_invocation(invoke=invoke, model=model, agent=agent)
     response = invocation(
-        _provider_request(intake.client_company, intake.original_request, source_documents)
+        _provider_request(
+            intake.client_company,
+            intake.original_request,
+            source_documents,
+            feedback=feedback,
+            previous=previous,
+        )
     )
     return _normalize_structured_response(response)
