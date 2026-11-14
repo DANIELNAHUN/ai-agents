@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CommercialProposalTemplate",
+  "description": "Plantilla estructurada para propuestas comerciales basada en el estándar Cableclub.",
+  "type": "object",
+  "required": [
+    "header",
+    "project_understanding",
+    "task_estimation",
+    "budget_summary",
+    "payment_schedule",
+    "deliverables"
+  ],
+  "properties": {
+    "header": {
+      "type": "object",
+      "description": "Metadatos y encabezado de la propuesta comercial.",
+      "required": ["project_name", "client_name", "provider_name"],
+      "properties": {
+        "project_name": {
+          "type": "string",
+          "description": "Nombre formal del proyecto (ej: 'Sistema de Campañas y Beneficios Cableclub')"
+        },
+        "client_name": {
+          "type": "string",
+          "description": "Nombre de la empresa o cliente (ej: 'Cableclub')"
+        },
+        "provider_name": {
+          "type": "string",
+          "description": "Nombre del proveedor o consultor a cargo (ej: 'Daniel Calcina')"
+        }
+      }
+    },
+    "project_understanding": {
+      "type": "object",
+      "description": "Sección 1: Entendimiento del proyecto.",
+      "required": ["summary", "components"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Párrafo narrativo que sintetiza la necesidad de negocio del cliente y la solución técnica planteada."
+        },
+        "components": {
+          "type": "array",
+          "description": "Desglose de subsistemas, módulos o componentes técnicos principales.",
+          "items": {
+            "type": "object",
+            "required": ["title", "description"],
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Nombre del componente (ej: 'Base de Datos y ETL', 'Backend API - Campañas y Beneficios')"
+              },
+              "description": {
+                "type": "string",
+                "description": "Alcance funcional detallado de este componente"
+              }
+            }
+          }
+        }
+      }
+    },
+    "task_estimation": {
+      "type": "object",
+      "description": "Sección 2: Estimación de horas por tareas y tabla de costos.",
+      "required": ["tasks", "total_hours", "total_cost"],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "description": "Filas de la tabla de estimación por módulos o entregables.",
+          "items": {
+            "type": "object",
+            "required": ["name", "hours", "cost"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Nombre de la tarea o módulo (ej: 'Frontend - Asesor Comercial')"
+              },
+              "hours": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Total de horas estimadas para la tarea"
+              },
+              "cost": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Costo en Soles (PEN)"
+              }
+            }
+          }
+        },
+        "discount": {
+          "type": "number",
+          "default": 0,
+          "description": "Descuento comercial opcional en Soles (PEN), si aplica"
+        },
+        "total_hours": {
+          "type": "number",
+          "description": "Total acumulado de horas del proyecto"
+        },
+        "total_cost": {
+          "type": "number",
+          "description": "Costo final total en Soles (PEN) descontando el descuento comercial"
+        }
+      }
+    },
+    "budget_summary": {
+      "type": "object",
+      "description": "Sección 3: Presupuesto estimado, inclusiones y exclusiones.",
+      "required": ["estimated_duration", "investment_summary", "includes", "excludes"],
+      "properties": {
+        "estimated_duration": {
+          "type": "string",
+          "description": "Texto del plazo estimado (ej: '130 horas / 1 mes 1 semana')"
+        },
+        "investment_summary": {
+          "type": "string",
+          "description": "Texto de inversión total (ej: 'S/. 2700.00 (2700 soles en total del proyecto)')"
+        },
+        "includes": {
+          "type": "array",
+          "description": "Lista de elementos y servicios cubiertos en la propuesta",
+          "items": { "type": "string" }
+        },
+        "excludes": {
+          "type": "array",
+          "description": "Lista explícita de elementos NO incluidos (ej: Cloud, APIs externas no especificadas)",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "payment_schedule": {
+      "type": "array",
+      "description": "Sección 4: Esquema de pagos por hitos finalizados.",
+      "items": {
+        "type": "object",
+        "required": ["milestone_label", "amount", "condition"],
+        "properties": {
+          "milestone_label": {
+            "type": "string",
+            "description": "Etiqueta del pago (ej: 'Primer pago', 'Pago 2', 'Pago final')"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Monto en Soles (PEN)"
+          },
+          "condition": {
+            "type": "string",
+            "description": "Hito o condición para la liberación del pago (ej: 'después de finalizar el módulo X + Y')"
+          }
+        }
+      }
+    },
+    "deliverables": {
+      "type": "array",
+      "description": "Sección 5: Entregables tangibles asociados al proyecto.",
+      "items": {
+        "type": "object",
+        "required": ["name", "content"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Identificador del entregable (ej: 'Entregable 1', 'Entregable 2')"
+          },
+          "content": {
+            "type": "string",
+            "description": "Detalle técnico de los módulos y artefactos incluidos en esta entrega"
+          }
+        }
+      }
+    }
+  }
+}

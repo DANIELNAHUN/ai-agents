@@ -1,0 +1,111 @@
+{
+  "header": {
+    "project_name": "Sistema de Campañas y Beneficios Cableclub",
+    "client_name": "Cableclub",
+    "provider_name": "Daniel Calcina"
+  },
+  "project_understanding": {
+    "summary": "El cliente necesita un sistema web para gestionar campañas de beneficios a clientes de TV e Internet. El sistema permite clasificar clientes en 4 perfiles (Permanencia, Deuda, Pago, Tarifa) calculados automáticamente desde datos de nómina, crear campañas con beneficios configurables por perfil, y gestionar un flujo de aprobación donde asesores comerciales ofrecen beneficios y supervisores validan excepciones. Incluye generación de PDF y envío de email al cliente.",
+    "components": [
+      {
+        "title": "Base de Datos y ETL",
+        "description": "Diseño de esquema con tabla perfiles_clientes, migración de data inicial desde nómina, y motor de cálculo de perfiles autoajustable al paso del tiempo."
+      },
+      {
+        "title": "Backend API - Campañas y Beneficios",
+        "description": "CRUD completo de campañas y beneficios con condicionales por perfil, asignación de beneficios a campañas."
+      },
+      {
+        "title": "Backend API - Clientes y Búsqueda",
+        "description": "Búsqueda de clientes por ciudad + abonado/DNI, datos completos (servicios, deuda, perfiles, contactos, órdenes de servicio), beneficios aplicables según perfiles."
+      },
+      {
+        "title": "Backend API - Flujo de Aprobación",
+        "description": "Solicitud de aprobación con validación de perfiles, aprobación/rechazo, notificaciones, reasignación de supervisor."
+      },
+      {
+        "title": "Backend API - PDF y Email",
+        "description": "Generación de PDF con detalles del beneficio y datos del abonado, envío de email con PDF adjunto."
+      },
+      {
+        "title": "Frontend - Asesor Comercial",
+        "description": "Vista de campañas activas, búsqueda de clientes, selección de beneficios con validación, opción de forzar beneficio, impresión de proforma."
+      },
+      {
+        "title": "Frontend - Supervisor Comercial",
+        "description": "Vista de beneficios ofrecidos, filtro por estado, aprobación de beneficios, reasignación de supervisor."
+      },
+      {
+        "title": "Frontend - Administrador",
+        "description": "Gestión de perfiles/clasificaciones, campañas y beneficios con sus requerimientos."
+      }
+    ]
+  },
+  "task_estimation": {
+    "tasks": [
+      { "name": "Base de Datos y ETL", "hours": 18, "cost": 500.00 },
+      { "name": "Backend API - Campañas y Beneficios", "hours": 14, "cost": 420.00 },
+      { "name": "Backend API - Clientes y Búsqueda", "hours": 9, "cost": 270.00 },
+      { "name": "Backend API - Flujo de Aprobación", "hours": 10, "cost": 300.00 },
+      { "name": "Backend API - PDF y Email", "hours": 7, "cost": 150.00 },
+      { "name": "Frontend - Asesor Comercial", "hours": 25, "cost": 500.00 },
+      { "name": "Frontend - Supervisor Comercial", "hours": 12, "cost": 240.00 },
+      { "name": "Frontend - Administrador", "hours": 21, "cost": 360.00 },
+      { "name": "Deploy, Testing y Soporte", "hours": 14, "cost": 260.00 }
+    ],
+    "discount": 300.00,
+    "total_hours": 130,
+    "total_cost": 2700.00
+  },
+  "budget_summary": {
+    "estimated_duration": "130 horas / 1 mes 1 semana",
+    "investment_summary": "S/. 2700.00 (2700 soles en total del proyecto)",
+    "includes": [
+      "Desarrollo Backend (REST API)",
+      "Frontend (3 módulos: Asesor, Supervisor, Administrador)",
+      "Base de datos con perfiles_clientes y motor de cálculo",
+      "ETL desde nómina para carga inicial de clientes",
+      "Generación de PDF y envío de email",
+      "Deploy con Docker",
+      "Ajustes en requerimientos iniciales",
+      "Soporte de 3 meses post-entrega"
+    ],
+    "excludes": [
+      "Cloud",
+      "Modificación de la lógica inicial del requerimiento",
+      "Adición de módulos o procesos extras",
+      "Conexión a APIs externas no especificadas"
+    ]
+  },
+  "payment_schedule": [
+    {
+      "milestone_label": "Primer pago",
+      "amount": 1500.00,
+      "condition": "después de finalizar el módulo Base de Datos y ETL + Backend API completo"
+    },
+    {
+      "milestone_label": "Pago 2",
+      "amount": 1000.00,
+      "condition": "después de finalizar el módulo Frontend Asesor Comercial + Supervisor Comercial"
+    },
+    {
+      "milestone_label": "Pago final",
+      "amount": 200.00,
+      "condition": "Frontend Administrador + Deploy, Testing y Soporte"
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "Entregable 1",
+      "content": "Base de datos con perfiles_clientes, ETL desde nómina, motor de cálculo de perfiles y Backend API completo (campañas, beneficios, clientes, aprobaciones, PDF, email)"
+    },
+    {
+      "name": "Entregable 2",
+      "content": "Frontend Asesor Comercial (campañas, búsqueda clientes, selección beneficios, proforma) + Frontend Supervisor Comercial (beneficios, aprobaciones)"
+    },
+    {
+      "name": "Entregable 3",
+      "content": "Frontend Administrador (perfiles, campañas, beneficios) + Deploy Docker + Testing integral + Soporte 3 meses"
+    }
+  ]
+}
