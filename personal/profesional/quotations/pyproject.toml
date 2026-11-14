@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-quotation = "quotation_agents.cli:main"
+quotation = "quotation_agents.workspace_cli:main"
 
 [build-system]
 requires = ["hatchling"]

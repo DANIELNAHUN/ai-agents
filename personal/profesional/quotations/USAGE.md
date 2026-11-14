@@ -80,44 +80,82 @@ QUOTATION_API_KEY=your-key
 
 ---
 
-## Running the interactive CLI
+## Quotation workspaces
 
-From inside `personal/profesional/quotations/`:
+Each quotation lives in its own folder, so you can stop at any time and continue later
+without starting from zero. From inside `personal/profesional/quotations/`:
 
 ```bash
-# Default: saves to ./proposals/ in Spanish
-uv run quotation
-
-# Custom output directory
-uv run quotation --output ./out/proposals
-
-# Set the project name in the commercial proposal
-uv run quotation --project-name "Sistema de Campañas Cableclub"
-
-# Set your name as provider
-uv run quotation --provider-name "Daniel Calcina"
-
-# Use a specific .env file
-uv run quotation --dotenv /path/to/.env
-
-# Internal proposal language: es (default) or en
-uv run quotation --language es
-
-# Add requirement documents as context (repeat --attachment for each file)
-uv run quotation --attachment .\requirements.pdf --attachment .\scope.docx
-
-# All options combined
-uv run quotation \
-  --output ./proposals \
-  --project-name "Sistema de Campañas" \
-  --provider-name "Daniel Calcina" \
-  --language es
+uv run quotation setup "Sistema de Campañas Cableclub"   # create a workspace
+uv run quotation list                                    # see all your quotations
+uv run quotation resume sistema-de-campanas-cableclub    # continue where you left off
+uv run quotation profile                                 # improve your developer profile
 ```
 
-Attachments support PDF, DOCX, Markdown, and UTF-8 TXT files. The CLI extracts their
-text locally and sends it to the configured model during intake and task decomposition.
-Scanned PDFs need OCR before attachment. The document text is treated as source material,
-not as agent instructions.
+Every command accepts `--root DIR` (workspaces folder) and `--dotenv FILE`. Without
+`--root`, workspaces go to `$QUOTATION_WORKSPACES`, or to `quotes/` inside this package
+(git-ignored, because it holds client data). Running `uv run quotation` alone prints help.
+
+### Workspace layout
+
+```
+quotes/
+├── _profile/
+│   ├── profile.md          # your base developer profile
+│   └── learned.json        # which quotations the profile agent already reviewed
+└── sistema-de-campanas-cableclub/
+    ├── documentations/     # drop your draft files here (PDF, DOCX, MD, TXT)
+    ├── profile.md          # this project's editable copy of your profile
+    ├── notes.md            # what the agent discovered and what you decided
+    ├── state.json          # where you left off (phase, approved data, digests)
+    └── output/             # generated quotations, one folder per version
+```
+
+### setup
+
+`setup` asks for the quotation name when you omit it and proposes a folder name. Names
+whose folder name would exceed 40 characters are summarized by the model; you can accept
+the proposal or type another. An existing folder gets a numeric suffix (`crm-2`).
+
+The base profile is copied into the workspace. If you have none yet, setup offers to create
+one from a template. Setup then shows the profile and asks whether to adjust anything for
+this project (useful for collaborative projects): describe the change, and approve each edit
+the agent proposes. Only the project copy changes; decisions are logged in `notes.md`.
+
+### Developer profile
+
+`profile.md` is Markdown with YAML frontmatter, editable by hand:
+
+```markdown
+---
+stack: [Python, FastAPI, React]
+tools: [ClickUp, GitHub]
+mcps: [github, context7]
+project_kinds: [backend, fullstack, ai, n8n]
+team:
+- name: Daniel
+  role: fullstack
+---
+## Conventions
+Free text the agents should know.
+```
+
+The profile guides requirement inference and task decomposition (technologies, tools,
+conventions). It does not change pricing: hourly rates stay in `rates.py`. A team member's
+optional `rate_per_hour` is stored for the future but not used yet.
+
+### list
+
+`list` shows every workspace with its name, phase, last activity, and latest generated
+version and total. Folders with a missing or broken `state.json` are shown as `invalid`
+with the reason, so you can fix them by hand.
+
+### Draft documents
+
+Supported files are PDF, DOCX, Markdown, and UTF-8 TXT. Each file is read once and
+summarized into a digest stored in `state.json` and `notes.md`; later runs reuse the
+digests instead of re-reading the files. Scanned PDFs need OCR first. Document text is
+treated as source material, not as agent instructions.
 
 ### Progress output
 
@@ -135,7 +173,7 @@ reasoning is not exposed. On a terminal the status is a single spinner line upda
 when output is redirected, each status change is printed once. Consoles that cannot render the
 symbols fall back to ASCII (`>`, `OK`, `FAIL`).
 
-If a step keeps waiting with large attachments, raise `QUOTATION_HTTP_TIMEOUT_SECONDS`
+If a step keeps waiting with large documents, raise `QUOTATION_HTTP_TIMEOUT_SECONDS`
 (default 15, maximum 120) in `.env`.
 
 ### Reviewing and correcting
@@ -327,7 +365,14 @@ python -m compileall src tests
 ```
 quotations/
 ├── src/quotation_agents/
-│   ├── cli.py           # Interactive CLI entry point
+│   ├── cli.py           # Interactive workflow phases
+│   ├── workspace_cli.py # Entry point: setup, list, resume, profile
+│   ├── workspace.py     # Workspace folders, names and listing
+│   ├── state.py         # state.json model (phase, approved data, digests)
+│   ├── notes.py         # Append-only notes.md log
+│   ├── ingestion.py     # Document digests, read once
+│   ├── profile.py       # Developer profile file format
+│   ├── profile_agent.py # Profile edit and learning agents
 │   ├── commercial.py    # Commercial proposal models + synthesis agent
 │   ├── config.py        # Provider configuration (.env loading)
 │   ├── decomposition.py # LLM-powered task decomposition per category

@@ -1,9 +1,7 @@
-"""Interactive CLI for the software quotation workflow.
+"""Interactive phases of the software quotation workflow.
 
-Usage:
-    uv run python -m quotation_agents.cli
-    uv run python -m quotation_agents.cli --output ./proposals --language es
-    uv run python -m quotation_agents.cli --help
+The commands that drive these phases live in ``workspace_cli`` (entry point
+``uv run quotation``).
 
 Environment variables (or .env file in the project root):
     QUOTATION_PROVIDER     Provider name: openai | ollama | omniroute | freellm
@@ -14,7 +12,6 @@ Environment variables (or .env file in the project root):
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 from decimal import Decimal
@@ -45,7 +42,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 from quotation_agents import (
     ApprovalState,
-    AttachmentError,
     QuotationCalculationError,
     QuotationDraft,
     QuotationTask,
@@ -55,13 +51,11 @@ from quotation_agents import (
     approve_draft,
     calculate_quote,
     create_commercial_synthesis_agent,
-    create_configured_model,
     create_decomposition_agent,
     create_requirement_inference_agent,
     decompose_category,
     generate_commercial_proposal_documents,
     generate_proposal_documents,
-    load_source_documents,
     review_quote,
     revise_draft,
     synthesize_commercial_proposal,
@@ -627,125 +621,3 @@ def _phase_generate(
         f"  {Fore.YELLOW}quotation-commercial.docx{Style.RESET_ALL} "
         "→ for the client (business language)"
     )
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Interactive software quotation workflow",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("./proposals"),
-        metavar="DIR",
-        help="Output directory for generated DOCX files (default: ./proposals)",
-    )
-    parser.add_argument(
-        "--language",
-        choices=["en", "es"],
-        default="es",
-        help="Language for the internal proposal document (default: es)",
-    )
-    parser.add_argument(
-        "--project-name",
-        type=str,
-        default=None,
-        metavar="NAME",
-        help="Override the project name in the commercial proposal",
-    )
-    parser.add_argument(
-        "--provider-name",
-        type=str,
-        default="Daniel Calcina",
-        metavar="NAME",
-        help="Provider name shown in commercial proposals (default: Daniel Calcina)",
-    )
-    parser.add_argument(
-        "--dotenv",
-        type=Path,
-        default=None,
-        metavar="FILE",
-        help="Path to a .env file with QUOTATION_* variables",
-    )
-    parser.add_argument(
-        "--attachment",
-        type=Path,
-        action="append",
-        default=[],
-        metavar="FILE",
-        help=(
-            "Requirement document to include as source context; repeat for multiple files "
-            "(PDF, DOCX, MD, or TXT)"
-        ),
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
-    args = _parse_args()
-
-    try:
-        source_documents = load_source_documents(args.attachment)
-    except AttachmentError as exc:
-        print(f"\n{Fore.RED}Attachment error: {exc}{Style.RESET_ALL}")
-        sys.exit(1)
-
-    _header("Software Quotation Workflow")
-    print(f"  Output: {args.output}")
-    print(f"  Language: {args.language}")
-    if source_documents:
-        print(f"  Attachments: {len(source_documents)}")
-
-    print(f"\n{Fore.CYAN}Loading model configuration...{Style.RESET_ALL}")
-    try:
-        model = create_configured_model(dotenv_path=args.dotenv)
-    except Exception as exc:
-        print(f"\n{Fore.RED}Configuration error: {exc}{Style.RESET_ALL}")
-        print(
-            "\nMake sure you have a .env file or environment variables set:\n"
-            "  QUOTATION_PROVIDER=openai\n"
-            "  QUOTATION_MODEL=gpt-4o-mini\n"
-            "  QUOTATION_API_KEY=sk-...\n"
-        )
-        sys.exit(1)
-
-    # Phase 1: Intake
-    progress = ProgressReporter()
-    draft = _phase_intake(model, source_documents, progress)
-
-    # Phase 2: Scope review
-    scope = _phase_review_draft(draft, model, source_documents, progress)
-
-    # Phase 3: Technical decomposition
-    draft = _phase_decompose(scope, model, source_documents, progress)
-
-    # Phase 4: Pricing; going back re-opens task review, then recalculates
-    while (quote := _phase_pricing(draft)) is None:
-        draft = _review_tasks(scope, list(draft.tasks), model, source_documents, progress)
-
-    # Resolve project name
-    project_name = args.project_name or (
-        draft.inferred_scope[0] if draft.inferred_scope else draft.original_request[:50]
-    )
-
-    # Phase 5: Generate documents
-    args.output.mkdir(parents=True, exist_ok=True)
-    _phase_generate(
-        draft,
-        quote,
-        args.output,
-        args.language,
-        model,
-        project_name,
-        args.provider_name,
-        progress,
-    )
-
-
-if __name__ == "__main__":
-    main()

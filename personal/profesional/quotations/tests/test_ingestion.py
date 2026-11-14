@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 
 import pytest
 
+from quotation_agents.attachments import SourceDocument
 from quotation_agents.ingestion import (
     IngestionError,
     context_documents,
     digest_document,
     ingest_documents,
 )
-from quotation_agents.attachments import SourceDocument
 from quotation_agents.profile import PROFILE_TEMPLATE
 from quotation_agents.state import DocumentDigest, load_state
 from quotation_agents.workspace import create_workspace

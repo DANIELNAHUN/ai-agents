@@ -10,7 +10,6 @@ from pydantic import BaseModel, ValidationError
 
 from .config import QuotationConfig, load_config
 
-
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 

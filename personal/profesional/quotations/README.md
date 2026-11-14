@@ -156,22 +156,18 @@ is injected by the caller. The package never constructs a provider, reads
 credentials, makes network calls, or invokes a live model implicitly. Tests can
 use the same `invoke` contract with an offline callable or fake model.
 
-### Requirement attachments
+### Requirement documents
 
-The interactive CLI accepts repeatable `--attachment` options. PDF, DOCX, Markdown,
-and UTF-8 text files are extracted locally and supplied as untrusted source context
-during requirement inference and task decomposition:
+The interactive CLI reads draft documents from a workspace's `documentations/` folder
+instead of command-line flags: run `uv run quotation setup "<name>"`, drop PDF, DOCX,
+Markdown, or UTF-8 text files there, then run `uv run quotation resume <folder>`. Each file
+is extracted locally once and summarized into a digest; the digests and the developer
+profile are supplied as untrusted source context during requirement inference and task
+decomposition. See `USAGE.md` for the full workflow.
 
-```powershell
-uv run quotation --attachment .\requirements.pdf `
-  --attachment .\scope.docx `
-  --attachment .\acceptance-criteria.md
-```
-
-Scanned PDFs need OCR before use. Attachments are read from the local paths you pass;
-the extracted text is sent to your configured model provider as part of its request.
-For direct Python use, call `load_source_documents(paths)` and pass the result as
-`source_documents` to `infer_requirements` and `decompose_category`.
+Scanned PDFs need OCR before use. For direct Python use, call
+`load_source_documents(paths)` and pass the result as `source_documents` to
+`infer_requirements` and `decompose_category`.
 
 ## QA-003 task decomposition
 
