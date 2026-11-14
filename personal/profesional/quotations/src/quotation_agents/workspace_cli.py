@@ -58,7 +58,17 @@ from .profile import (
     load_profile,
     save_profile,
 )
-from .profile_agent import create_profile_edit_agent, propose_profile_edits
+from .profile_agent import (
+    ProfileAgentError,
+    collect_learning_sources,
+    create_learning_agent,
+    create_profile_edit_agent,
+    load_learned_index,
+    mark_reviewed,
+    propose_profile_edits,
+    save_learned_index,
+    suggest_from_quotations,
+)
 from .progress import ProgressReporter, track
 from .provider import create_configured_model
 from .state import (
@@ -79,6 +89,7 @@ from .workspace import (
     base_profile_path,
     create_slug_agent,
     create_workspace,
+    learned_index_path,
     list_workspaces,
     open_workspace,
     resolve_root,
@@ -545,6 +556,76 @@ def cmd_resume(
 
 
 # ---------------------------------------------------------------------------
+# profile
+# ---------------------------------------------------------------------------
+
+def _told_changes(profile: DeveloperProfile, models: ModelFactory) -> DeveloperProfile:
+    request = _ask("What changed in your profile? (empty to skip)")
+    if not request:
+        return profile
+    try:
+        edits = propose_profile_edits(profile, request, agent=create_profile_edit_agent(models()))
+    except Exception as exc:  # keep the command usable when the provider fails
+        _warn(f"The profile agent failed: {_describe_failure(exc)}")
+        return profile
+    profile, _approved = review_profile_edits(profile, edits)
+    return profile
+
+
+def _learned_changes(
+    root: Path,
+    profile: DeveloperProfile,
+    models: ModelFactory,
+) -> DeveloperProfile:
+    index_path = learned_index_path(root)
+    index = load_learned_index(index_path)
+    sources = collect_learning_sources(root, index)
+    if not sources:
+        print("\nNo new quotation activity to learn from.")
+        return profile
+    try:
+        suggestions = suggest_from_quotations(
+            profile, sources, index, agent=create_learning_agent(models())
+        )
+    except Exception as exc:  # retried next time: the index is not updated
+        _warn(f"The learning agent failed: {_describe_failure(exc)}")
+        return profile
+
+    if not suggestions:
+        print("\nYour profile already covers your recent quotations.")
+    for suggestion in suggestions:
+        evidence = ", ".join(suggestion.evidence)
+        _bullet(f"{suggestion.field}: {suggestion.value} (seen in: {evidence})")
+        if _ask_yn("Add to your profile?", default=True):
+            edit = ProfileEdit(
+                field=suggestion.field,
+                action="add",
+                value=suggestion.value,
+                reason=f"Seen in {evidence}",
+            )
+            profile = apply_edit(profile, edit)
+    save_learned_index(index_path, mark_reviewed(index, sources, suggestions))
+    return profile
+
+
+def cmd_profile(root: Path, model_factory: ModelFactory) -> None:
+    """Improve the base profile from what you tell it and from past quotations."""
+
+    _header("Developer profile")
+    try:
+        profile = ensure_base_profile(root)
+        original = profile
+        print_profile(profile)
+        profile = _told_changes(profile, model_factory)
+        profile = _learned_changes(root, profile, model_factory)
+    except (ProfileError, ProfileAgentError) as exc:
+        _fail(str(exc))
+    if profile != original:
+        save_profile(base_profile_path(root), profile)
+        _success(f"Base profile updated: {base_profile_path(root)}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -652,8 +733,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             project_name=args.project_name,
         )
     else:
-        print(f"The {args.command!r} command is not available yet.")
-        sys.exit(1)
+        cmd_profile(root, models)
 
 
 if __name__ == "__main__":

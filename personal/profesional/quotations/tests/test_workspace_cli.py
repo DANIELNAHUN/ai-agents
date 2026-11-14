@@ -152,3 +152,88 @@ def test_list_empty_root_hint(tmp_path, capsys):
     workspace_cli.cmd_list(tmp_path)
 
     assert 'uv run quotation setup "<name>"' in capsys.readouterr().out
+
+
+# --- profile command ---------------------------------------------------------
+
+
+class SequenceAgentFactory:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def __call__(self, _model):
+        factory = self
+
+        class Agent:
+            def invoke(self, request, config=None):
+                factory.calls += 1
+                return {"structured_response": factory.responses.pop(0)}
+
+        return Agent()
+
+
+def test_profile_command_applies_only_approved_edits_to_base(monkeypatch, tmp_path):
+    save_profile(base_profile_path(tmp_path), PROFILE_TEMPLATE)
+    project = create_workspace(tmp_path, "CRM", "crm", PROFILE_TEMPLATE, NOW)
+    edits = [
+        {"field": "tools", "action": "add", "value": "n8n", "reason": "adopted"},
+        {"field": "stack", "action": "add", "value": "Vue", "reason": "maybe"},
+    ]
+    monkeypatch.setattr(
+        workspace_cli, "create_profile_edit_agent", SequenceAgentFactory([{"edits": edits}])
+    )
+    monkeypatch.setattr(
+        workspace_cli, "create_learning_agent", SequenceAgentFactory([{"suggestions": []}])
+    )
+    _feed_input(monkeypatch, ["I use n8n now", "y", "n"])
+
+    workspace_cli.cmd_profile(tmp_path, lambda: object())
+
+    base = load_profile(base_profile_path(tmp_path))
+    assert "n8n" in base.tools
+    assert "Vue" not in base.stack
+    assert load_profile(project.profile) == PROFILE_TEMPLATE
+
+
+def test_profile_command_learned_suggestion_not_repeated(monkeypatch, tmp_path, capsys):
+    save_profile(base_profile_path(tmp_path), PROFILE_TEMPLATE)
+    project = create_workspace(tmp_path, "CRM", "crm", PROFILE_TEMPLATE, NOW)
+    supabase = {"field": "stack", "value": "Supabase", "evidence": ["crm"]}
+    learning = SequenceAgentFactory(
+        [{"suggestions": [supabase]}, {"suggestions": [supabase]}]
+    )
+    monkeypatch.setattr(workspace_cli, "create_learning_agent", learning)
+
+    _feed_input(monkeypatch, ["", "n"])
+    workspace_cli.cmd_profile(tmp_path, lambda: object())
+    _feed_input(monkeypatch, [""])
+    workspace_cli.cmd_profile(tmp_path, lambda: object())
+
+    assert learning.calls == 1
+    assert "No new quotation activity to learn from." in capsys.readouterr().out
+
+    with project.notes.open("a", encoding="utf-8") as handle:
+        handle.write("- more work\n")
+    _feed_input(monkeypatch, [""])
+    workspace_cli.cmd_profile(tmp_path, lambda: object())
+
+    assert learning.calls == 2
+    assert "Supabase" not in load_profile(base_profile_path(tmp_path)).stack
+
+
+def test_profile_command_adds_approved_learned_suggestion(monkeypatch, tmp_path):
+    save_profile(base_profile_path(tmp_path), PROFILE_TEMPLATE)
+    create_workspace(tmp_path, "CRM", "crm", PROFILE_TEMPLATE, NOW)
+    monkeypatch.setattr(
+        workspace_cli,
+        "create_learning_agent",
+        SequenceAgentFactory(
+            [{"suggestions": [{"field": "project_kinds", "value": "n8n", "evidence": ["crm"]}]}]
+        ),
+    )
+    _feed_input(monkeypatch, ["", "y"])
+
+    workspace_cli.cmd_profile(tmp_path, lambda: object())
+
+    assert "n8n" in load_profile(base_profile_path(tmp_path)).project_kinds

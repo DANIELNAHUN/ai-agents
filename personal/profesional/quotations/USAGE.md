@@ -180,6 +180,22 @@ reopen the scope review first.
 `--language`, `--provider-name`, and `--project-name` (default: the workspace name) apply
 to the generated documents.
 
+### profile
+
+`profile` improves your **base** profile (`quotes/_profile/profile.md`) in two ways:
+
+1. **What you tell it**: describe what changed ("I now use n8n", "Ana joined as frontend");
+   the agent proposes concrete edits and you approve each one.
+2. **What it learns from your quotations**: it reads the `notes.md` of quotations that
+   changed since its last review and suggests technologies, tools, MCPs, and project kinds
+   (backend, fullstack, AI, n8n, …) missing from your profile, with the quotations that
+   support each one. You approve each suggestion.
+
+Nothing is written without your approval, and project copies of the profile are never
+modified. `_profile/learned.json` remembers which quotations were reviewed and which
+suggestions were already shown, so a rejected suggestion is not offered again; a quotation
+is reviewed again only after its notes change.
+
 ### Draft documents
 
 Supported files are PDF, DOCX, Markdown, and UTF-8 TXT. Each file is read once and
