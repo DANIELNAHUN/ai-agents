@@ -145,11 +145,20 @@ Each checkpoint offers a menu instead of a yes/no question:
 | Checkpoint | Options |
 |---|---|
 | Scope (phase 2) | `a` approve · `r` revise with feedback (the inference agent reruns with your comment and its previous result) · `q` quit |
-| Tasks (phase 3) | `a` approve · `e` edit the hours of one task · `r` revise one category with feedback · `q` quit |
+| Tasks (phase 3) | `a` approve · `e` edit the hours of one task · `r` revise one category with feedback · `g` revise all categories with the same feedback · `q` quit |
 | Quote (phase 4) | `a` accept · `b` back to tasks to adjust and recalculate · `q` quit |
 
-Tasks cannot be approved while any task lacks estimated hours. If pricing cannot be
-calculated, the CLI returns to task review instead of exiting.
+Tasks cannot be approved while any task lacks estimated hours. Edited hours must be a
+plain positive number (`6`, `2.5`, or `2,5`); forms such as `1e3` are rejected. If pricing
+cannot be calculated, the CLI returns to task review instead of exiting.
+
+The category menu marks categories without tasks as `(no tasks)`; you can still pick one
+and ask its agent to add work. Approving while any category is empty asks for explicit
+confirmation, because the quote would include no work for it.
+
+With `g`, every category agent reruns with the same feedback and its own numbered tasks;
+agents whose category the feedback does not concern return their tasks unchanged. If one
+agent fails, that category keeps its previous tasks and the others are still updated.
 
 Feedback can refer to tasks by the numbers shown in the list (for example "14. takes 3
 hours, remove 17."); the agent receives the previous tasks with those same numbers. If an

@@ -37,8 +37,10 @@ omitting it.
 An empty task list is valid when the category has no applicable work. When a
 reviewer feedback block is present, it comes from the person preparing the
 quotation: revise the previous result to apply it. The reviewer may refer to
-previous tasks by their number. To remove a task, omit it from the list;
-never return 0 hours. Return only the structured response.
+previous tasks by their number. The same feedback may be sent to every
+category: when it does not concern the requested category, return the previous
+tasks unchanged. To remove a task, omit it from the list; never return 0 hours.
+Return only the structured response.
 """
 
 INPUT_DATA_START = "<quotation_input_data>"

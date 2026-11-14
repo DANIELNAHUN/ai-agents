@@ -79,6 +79,27 @@ def test_callback_reports_model_wait_tools_and_token_usage():
     )
 
 
+def test_step_replaces_unencodable_label_characters_on_an_ascii_stream():
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="ascii")
+    reporter = ProgressReporter(stream=stream, clock=FakeClock(0.0, 1.0))
+
+    with reporter.step("Decomposition agent · gpt-4o-mini"):
+        pass
+
+    stream.flush()
+    output = raw.getvalue().decode("ascii")
+    assert "> Decomposition agent ? gpt-4o-mini" in output
+    assert "OK Decomposition agent ? gpt-4o-mini | 1.0s" in output
+
+
+def test_separator_follows_the_stream_symbol_set():
+    ascii_stream = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+
+    assert ProgressReporter(stream=io.StringIO()).separator == "·"
+    assert ProgressReporter(stream=ascii_stream).separator == "|"
+
+
 def test_step_falls_back_to_ascii_when_stream_cannot_encode_symbols():
     raw = io.BytesIO()
     stream = io.TextIOWrapper(raw, encoding="cp1252")

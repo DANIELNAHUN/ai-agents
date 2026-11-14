@@ -15,8 +15,9 @@ Environment variables (or .env file in the project root):
 from __future__ import annotations
 
 import argparse
+import re
 import sys
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -121,9 +122,11 @@ def _ask_yn(prompt: str, default: bool = True) -> bool:
 # Workflow phases
 # ---------------------------------------------------------------------------
 
-def _agent_label(name: str, model: Any) -> str:
+def _agent_label(name: str, model: Any, progress: ProgressReporter) -> str:
     model_name = getattr(model, "model_name", None) or getattr(model, "model", None)
-    return f"{name} · {model_name}" if isinstance(model_name, str) else name
+    if not isinstance(model_name, str):
+        return name
+    return f"{name} {progress.separator} {model_name}"
 
 
 def _phase_intake(
@@ -165,14 +168,15 @@ def _phase_intake(
             _bullet(document.name)
 
     print()
+    progress = progress or ProgressReporter()
     inference = infer_requirements(
         client,
         request,
         source_documents=source_documents,
         agent=track(
             create_requirement_inference_agent(model),
-            progress or ProgressReporter(),
-            _agent_label("Requirement inference agent", model),
+            progress,
+            _agent_label("Requirement inference agent", model, progress),
         ),
     )
 
@@ -264,7 +268,7 @@ def _phase_review_draft(
                 agent=track(
                     create_requirement_inference_agent(model),
                     progress,
-                    _agent_label("Requirement inference agent", model),
+                    _agent_label("Requirement inference agent", model, progress),
                 ),
                 feedback=feedback,
                 previous=RequirementInference(
@@ -310,7 +314,7 @@ def _decompose(
             agent=track(
                 create_decomposition_agent(model, category=category),
                 progress,
-                _agent_label(f"Decomposition agent [{category.value}]", model),
+                _agent_label(f"Decomposition agent [{category.value}]", model, progress),
             ),
             feedback=feedback,
             previous_tasks=previous_tasks or (),
@@ -344,27 +348,84 @@ def _ask_task_number(tasks: list[QuotationTask]) -> int | None:
     return None
 
 
+_PLAIN_HOURS = re.compile(r"\d+(\.\d+)?")
+
+
 def _ask_hours(description: str) -> Decimal:
     while True:
         raw = _ask(f"Hours for \"{description}\"").replace(",", ".")
-        try:
-            hours = Decimal(raw)
-        except InvalidOperation:
-            hours = Decimal("0")
-        if hours.is_finite() and hours > 0:
-            return hours
+        if _PLAIN_HOURS.fullmatch(raw) and Decimal(raw) > 0:
+            return Decimal(raw)
         _warn("Enter a positive number of hours, for example 6 or 2.5.")
 
 
-def _ask_category() -> WorkCategory | None:
+def _with_hours(task: QuotationTask, hours: Decimal) -> QuotationTask:
+    """Return a copy of the task with new hours, re-running model validation."""
+
+    return QuotationTask.model_validate({**task.model_dump(), "estimated_hours": hours})
+
+
+def _empty_categories(tasks: list[QuotationTask]) -> list[WorkCategory]:
+    used = {task.category for task in tasks}
+    return [category for category in WorkCategory if category not in used]
+
+
+def _ask_category(tasks: list[QuotationTask]) -> WorkCategory | None:
     categories = list(WorkCategory)
+    empty = set(_empty_categories(tasks))
     for number, category in enumerate(categories, start=1):
-        _bullet(f"{number}. {category.value}")
+        marker = " (no tasks)" if category in empty else ""
+        _bullet(f"{number}. {category.value}{marker}")
     raw = _ask(f"Category to revise (1-{len(categories)})")
     if raw.isdigit() and 1 <= int(raw) <= len(categories):
         return categories[int(raw) - 1]
     _warn("Invalid category.")
     return None
+
+
+def _confirm_empty_categories(tasks: list[QuotationTask]) -> bool:
+    """Ask before approving when a whole category has no tasks (risk of under-quoting)."""
+
+    empty = _empty_categories(tasks)
+    if not empty:
+        return True
+    _warn(
+        "These categories have no tasks: "
+        + ", ".join(category.value for category in empty)
+        + "\n  The quote will not include any work for them."
+    )
+    return _ask_yn("Approve anyway?", default=False)
+
+
+def _revise_category(
+    scope: QuotationDraft,
+    tasks: list[QuotationTask],
+    category: WorkCategory,
+    feedback: str,
+    model: Any,
+    source_documents: tuple[SourceDocument, ...],
+    progress: ProgressReporter,
+    failure_outcome: str,
+) -> list[QuotationTask]:
+    """Revise one category with feedback; keep its previous tasks if the agent fails."""
+
+    numbered = [
+        (number, task) for number, task in enumerate(tasks, start=1) if task.category is category
+    ]
+    revised = _decompose(
+        scope,
+        category,
+        model,
+        source_documents,
+        progress,
+        failure_outcome=failure_outcome,
+        feedback=feedback,
+        previous_tasks=[task for _number, task in numbered],
+        task_numbers=[number for number, _task in numbered],
+    )
+    if revised is None:
+        return [task for _number, task in numbered]
+    return revised
 
 
 def _review_tasks(
@@ -374,7 +435,7 @@ def _review_tasks(
     source_documents: tuple[SourceDocument, ...] = (),
     progress: ProgressReporter | None = None,
 ) -> QuotationDraft:
-    """Let the user approve tasks, fix hours, or ask an agent to revise a category."""
+    """Let the user approve tasks, fix hours, or ask agents to revise them with feedback."""
 
     progress = progress or ProgressReporter()
     tasks = list(tasks)
@@ -386,6 +447,7 @@ def _review_tasks(
                 "a": "Approve",
                 "e": "Edit hours",
                 "r": "Revise a category with feedback",
+                "g": "Revise all categories with feedback",
                 "q": "Quit",
             },
         )
@@ -399,38 +461,39 @@ def _review_tasks(
                     "Edit them or ask the agent to revise the category."
                 )
                 continue
+            if not _confirm_empty_categories(tasks):
+                continue
             return approve_draft(revise_draft(scope, tasks=tasks))
         if choice == "e":
             index = _ask_task_number(tasks)
             if index is not None:
                 hours = _ask_hours(tasks[index].description)
-                tasks[index] = tasks[index].model_copy(update={"estimated_hours": hours})
+                tasks[index] = _with_hours(tasks[index], hours)
             continue
 
-        category = _ask_category()
+        if choice == "g":
+            feedback = _ask_feedback("What should the agents change across all tasks?")
+            if not feedback:
+                continue
+            revised: list[QuotationTask] = []
+            for category in WorkCategory:
+                revised += _revise_category(
+                    scope, tasks, category, feedback, model, source_documents, progress,
+                    failure_outcome=f"The previous {category.value} tasks were kept.",
+                )
+            tasks = revised
+            continue
+
+        category = _ask_category(tasks)
         if category is None:
             continue
         feedback = _ask_feedback(f"What should the {category.value} agent change?")
         if not feedback:
             continue
-        numbered = [
-            (number, task)
-            for number, task in enumerate(tasks, start=1)
-            if task.category is category
-        ]
-        revised = _decompose(
-            scope,
-            category,
-            model,
-            source_documents,
-            progress,
+        revised = _revise_category(
+            scope, tasks, category, feedback, model, source_documents, progress,
             failure_outcome="The previous tasks were kept; try again, edit hours, or approve.",
-            feedback=feedback,
-            previous_tasks=[task for _number, task in numbered],
-            task_numbers=[number for number, _task in numbered],
         )
-        if revised is None:
-            continue
         order = list(WorkCategory)
         tasks = [task for task in tasks if task.category is not category] + revised
         tasks.sort(key=lambda task: order.index(task.category))
@@ -532,6 +595,7 @@ def _phase_generate(
 
     # --- Commercial (client-facing) proposal ---
     print()
+    progress = progress or ProgressReporter()
     commercial = synthesize_commercial_proposal(
         draft,
         quote,
@@ -539,8 +603,8 @@ def _phase_generate(
         provider_name=provider_name,
         agent=track(
             create_commercial_synthesis_agent(model),
-            progress or ProgressReporter(),
-            _agent_label("Commercial synthesis agent", model),
+            progress,
+            _agent_label("Commercial synthesis agent", model, progress),
         ),
     )
 

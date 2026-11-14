@@ -81,6 +81,12 @@ class ProgressReporter:
         self._symbols = _pick_symbols(self._encoding)
         self.callback = ProgressCallbackHandler(self)
 
+    @property
+    def separator(self) -> str:
+        """Field separator that the output stream can encode."""
+
+        return self._symbols.sep
+
     @contextmanager
     def step(self, label: str) -> Iterator[None]:
         """Report one agent step: start line, live status, and summary line."""
@@ -168,9 +174,8 @@ class ProgressReporter:
 
     def _write_line(self, text: str) -> None:
         with self._lock:
-            self._stream.write(f"{text}\n")
+            self._stream.write(self._safe(f"{text}\n"))
             self._stream.flush()
-
 
     def _safe(self, text: str) -> str:
         """Replace characters the stream encoding cannot represent."""
@@ -216,6 +221,7 @@ def _pick_symbols(encoding: str) -> _Symbols:
             UNICODE_SYMBOLS.done,
             UNICODE_SYMBOLS.failed,
             UNICODE_SYMBOLS.status,
+            UNICODE_SYMBOLS.sep,
             UNICODE_SYMBOLS.spinner,
         )
     )
