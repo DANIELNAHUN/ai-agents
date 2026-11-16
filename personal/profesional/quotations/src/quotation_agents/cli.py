@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -126,10 +127,21 @@ def _agent_label(name: str, model: Any, progress: ProgressReporter) -> str:
 def _ask_intake() -> tuple[str, str]:
     """Ask for the client name and the free-text project description."""
 
+    return _ask_client(), _ask_request()
+
+
+def _ask_client() -> str:
+    """Ask for the client or company name."""
+
     client = _ask("Client / company name")
     if not client:
         print("Client name is required.")
         sys.exit(1)
+    return client
+
+
+def _ask_request() -> str:
+    """Ask for the free-text project description."""
 
     print(
         f"\n{Fore.YELLOW}Describe the project in as much detail as you have.\n"
@@ -150,7 +162,7 @@ def _ask_intake() -> tuple[str, str]:
     if not request:
         print("Project description is required.")
         sys.exit(1)
-    return client, request
+    return request
 
 
 def _infer_intake(
@@ -251,8 +263,14 @@ def _phase_review_draft(
     model: Any,
     source_documents: tuple[SourceDocument, ...] = (),
     progress: ProgressReporter | None = None,
+    *,
+    on_revision: Callable[[str, QuotationDraft], None] | None = None,
 ) -> QuotationDraft:
-    """Phase 2 — Review the inferred scope; approve it or revise it with feedback."""
+    """Phase 2 — Review the inferred scope; approve it or revise it with feedback.
+
+    ``on_revision`` receives the feedback and the revised draft after each applied
+    revision, so callers can persist work in progress before approval.
+    """
     _header("Phase 2 — Review inferred scope")
 
     progress = progress or ProgressReporter()
@@ -294,6 +312,8 @@ def _phase_review_draft(
             _agent_failed("inference", exc, "the previous scope was kept; try again or approve.")
             continue
         draft = revise_draft(draft, **inference.model_dump())
+        if on_revision is not None:
+            on_revision(feedback, draft)
 
 
 def _agent_failed(agent_name: str, exc: Exception, outcome: str) -> None:

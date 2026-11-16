@@ -24,8 +24,9 @@ from .cli import (
     Style,
     _ask,
     _ask_choice,
+    _ask_client,
     _ask_feedback,
-    _ask_intake,
+    _ask_request,
     _ask_yn,
     _bullet,
     _header,
@@ -375,8 +376,10 @@ def _print_where_left_off(state: WorkspaceState) -> None:
     _info("Phase", state.phase.value)
     active = [record for record in state.documents if record.status == "active"]
     _info("Documents", str(len(active)))
+    client = state.draft.client_company if state.draft is not None else state.client_company
+    if client is not None:
+        _info("Client", client)
     if state.draft is not None:
-        _info("Client", state.draft.client_company)
         _info("Scope items", str(len(state.draft.inferred_scope)))
         if state.draft.tasks:
             _info("Tasks", f"{len(state.draft.tasks)} ({_hours(state.draft)} h)")
@@ -477,15 +480,17 @@ def _run_intake(
     """Ask the intake questions once, save the answers, then infer the scope."""
 
     _header("Phase 1 — Project intake")
-    if state.client_company is None or state.original_request is None:
-        client, request = _ask_intake()
-        state = _save(
-            paths,
-            state.model_copy(update={"client_company": client, "original_request": request}),
-            now,
-        )
+    # Each answer is saved as soon as it is given, so quitting mid-intake loses nothing.
+    if state.client_company is None:
+        client = _ask_client()
+        state = _save(paths, state.model_copy(update={"client_company": client}), now)
+        append_section(paths.notes, "Decided", [f"Client: {client}"])
     else:
         _info("Client", state.client_company)
+    if state.original_request is None:
+        request = _ask_request()
+        state = _save(paths, state.model_copy(update={"original_request": request}), now)
+        append_section(paths.notes, "Decided", ["Project description recorded."])
     try:
         draft = _infer_intake(
             state.client_company, state.original_request, models(), docs, progress
@@ -496,6 +501,19 @@ def _run_intake(
             "Your intake answers were saved; run resume again to retry."
         )
     return state.model_copy(update={"draft": draft, "phase": Phase.SCOPE_REVIEW})
+
+
+def _scope_revision_saver(
+    paths: WorkspacePaths, state: WorkspaceState, now: Clock
+) -> Callable[[str, QuotationDraft], None]:
+    """Persist each scope revision and note its feedback, so resume continues from it."""
+
+    def save(feedback: str, draft: QuotationDraft) -> None:
+        nonlocal state
+        state = _save(paths, state.model_copy(update={"draft": draft}), now)
+        append_section(paths.notes, "Adjusted", [f"Scope feedback: {feedback}"])
+
+    return save
 
 
 def _run_phases(
@@ -516,7 +534,13 @@ def _run_phases(
             state = _run_intake(paths, state, models, docs, progress, now)
             decided.append(f"Intake recorded for {state.draft.client_company}.")
         elif state.phase is Phase.SCOPE_REVIEW:
-            scope = _phase_review_draft(state.draft, models(), docs, progress)
+            scope = _phase_review_draft(
+                state.draft,
+                models(),
+                docs,
+                progress,
+                on_revision=_scope_revision_saver(paths, state, now),
+            )
             # Saved before any task revision, so the approval survives a crash there.
             state = state.model_copy(update={"draft": scope, "phase": Phase.DECOMPOSITION})
             decided.append(f"Scope approved ({len(scope.inferred_scope)} items).")

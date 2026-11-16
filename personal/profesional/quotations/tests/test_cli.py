@@ -212,6 +212,25 @@ def test_scope_review_revises_with_reviewer_feedback(monkeypatch):
     assert "Claims inbox" in feedback_message
 
 
+def test_scope_review_reports_each_applied_revision(monkeypatch):
+    agent = FakeAgent({"inferred_scope": ["Claims inbox", "SSO"]})
+    monkeypatch.setattr(cli, "create_requirement_inference_agent", lambda _model: agent)
+    _feed_input(monkeypatch, ["r", "Add SSO", "a"])
+    revisions = []
+
+    draft = cli._phase_review_draft(
+        _scope_draft(approved=False),
+        RawChatModel(),
+        on_revision=lambda feedback, revised: revisions.append((feedback, revised)),
+    )
+
+    assert [(feedback, revised.inferred_scope) for feedback, revised in revisions] == [
+        ("Add SSO", ["Claims inbox", "SSO"])
+    ]
+    assert revisions[0][1].approval_state is ApprovalState.PENDING
+    assert draft.inferred_scope == ["Claims inbox", "SSO"]
+
+
 def test_scope_review_approves_without_calling_the_agent(monkeypatch):
     def fail_factory(_model: Any) -> FakeAgent:
         raise AssertionError("approval must not call the agent")
