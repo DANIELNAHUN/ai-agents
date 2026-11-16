@@ -72,16 +72,20 @@ class Recorder:
 
             return Agent()
 
-        def ask_intake():
-            recorder.calls.append("ask_intake")
-            return "Cableclub", "Campaign system"
+        def ask_client():
+            recorder.calls.append("ask_client")
+            return "Cableclub"
+
+        def ask_request():
+            recorder.calls.append("ask_request")
+            return "Campaign system"
 
         def intake(client, request, model, docs, progress):
             recorder.calls.append("intake")
             recorder.docs = docs
             return pending_draft()
 
-        def review_draft(draft, model, docs, progress):
+        def review_draft(draft, model, docs, progress, **_kw):
             recorder.calls.append("scope")
             return approve_draft(draft)
 
@@ -111,7 +115,8 @@ class Recorder:
             (output_dir / "quotation-commercial.docx").write_bytes(b"commercial")
 
         monkeypatch.setattr(workspace_cli, "create_digest_agent", digest_factory)
-        monkeypatch.setattr(workspace_cli, "_ask_intake", ask_intake)
+        monkeypatch.setattr(workspace_cli, "_ask_client", ask_client)
+        monkeypatch.setattr(workspace_cli, "_ask_request", ask_request)
         monkeypatch.setattr(workspace_cli, "_infer_intake", intake)
         monkeypatch.setattr(workspace_cli, "_phase_review_draft", review_draft)
         monkeypatch.setattr(workspace_cli, "_phase_decompose", decompose)
@@ -345,5 +350,67 @@ def test_intake_answers_survive_inference_failure(monkeypatch, paths, capsys):
     recorder.calls.clear()
     _resume(paths.root.parent)
 
-    assert "ask_intake" not in recorder.calls
+    assert "ask_client" not in recorder.calls
+    assert "ask_request" not in recorder.calls
     assert load_state(paths.state).phase is Phase.GENERATED
+
+
+def test_client_is_saved_and_noted_before_the_description(monkeypatch, paths, capsys):
+    recorder = Recorder(monkeypatch)
+
+    def quit_request():
+        recorder.calls.append("ask_request")
+        raise SystemExit(0)
+
+    monkeypatch.setattr(workspace_cli, "_ask_request", quit_request)
+
+    with pytest.raises(SystemExit):
+        _resume(paths.root.parent)
+
+    state = load_state(paths.state)
+    assert state.client_company == "Cableclub"
+    assert state.original_request is None
+    assert "- Client: Cableclub" in paths.notes.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        workspace_cli, "_ask_request", lambda: recorder.calls.append("ask_request") or "CRM"
+    )
+    recorder.calls.clear()
+    capsys.readouterr()
+    _resume(paths.root.parent)
+
+    assert "ask_client" not in recorder.calls
+    assert "ask_request" in recorder.calls
+    assert "Client: Cableclub" in _plain(capsys.readouterr().out)
+    assert load_state(paths.state).original_request == "CRM"
+
+
+def test_scope_feedback_is_saved_and_noted_before_approval(monkeypatch, paths):
+    Recorder(monkeypatch)
+    revised = pending_draft().model_copy(update={"inferred_scope": ["Campaign inbox", "SSO"]})
+
+    def review_then_quit(draft, model, docs, progress, *, on_revision):
+        on_revision("Add SSO login", revised)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(workspace_cli, "_phase_review_draft", review_then_quit)
+
+    with pytest.raises(SystemExit):
+        _resume(paths.root.parent)
+
+    state = load_state(paths.state)
+    assert state.phase is Phase.SCOPE_REVIEW
+    assert state.draft.inferred_scope == ["Campaign inbox", "SSO"]
+    notes = paths.notes.read_text(encoding="utf-8")
+    assert "### Adjusted\n- Scope feedback: Add SSO login\n" in notes
+
+    seen = []
+
+    def review_resumed(draft, model, docs, progress, **_kw):
+        seen.append(draft.inferred_scope)
+        return approve_draft(draft)
+
+    monkeypatch.setattr(workspace_cli, "_phase_review_draft", review_resumed)
+    _resume(paths.root.parent)
+
+    assert seen == [["Campaign inbox", "SSO"]]

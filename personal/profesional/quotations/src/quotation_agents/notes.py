@@ -29,7 +29,7 @@ def start_session(path: Path, number: int, today: date) -> None:
 
 def append_section(
     path: Path,
-    heading: Literal["Discovered", "Decided"],
+    heading: Literal["Discovered", "Decided", "Adjusted"],
     items: Sequence[str],
 ) -> None:
     """Append a bullet section; nothing is written for an empty list."""
