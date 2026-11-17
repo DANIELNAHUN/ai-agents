@@ -109,6 +109,7 @@ class Recorder:
 
         def generate(draft, quote, output_dir, language, model, project_name, provider, progress):
             recorder.calls.append("generate")
+            recorder.language = language
             recorder.project_name = project_name
             internal = b"internal " + project_name.encode()
             (output_dir / "quotation-internal.docx").write_bytes(internal)
@@ -414,3 +415,114 @@ def test_scope_feedback_is_saved_and_noted_before_approval(monkeypatch, paths):
     _resume(paths.root.parent)
 
     assert seen == [["Campaign inbox", "SSO"]]
+
+
+def _regenerate(root, slug="crm", project_name=None):
+    workspace_cli.cmd_regenerate(
+        slug,
+        root,
+        lambda: object(),
+        provider_name="Daniel",
+        project_name=project_name,
+        now=lambda: NOW,
+    )
+
+
+def test_regenerate_command_rebuilds_documents_from_saved_quote(monkeypatch, paths):
+    recorder = Recorder(monkeypatch)
+    _resume(paths.root.parent)
+    saved = load_state(paths.state)
+    v1 = (paths.output / "v1" / "quotation-internal.docx").read_bytes()
+    recorder.calls.clear()
+
+    _regenerate(paths.root.parent, project_name="Renamed")
+
+    assert recorder.calls == ["generate"]
+    assert recorder.language == "es"
+    assert (paths.output / "v1" / "quotation-internal.docx").read_bytes() == v1
+    assert (paths.output / "v2" / "quotation-internal.docx").read_bytes() == b"internal Renamed"
+    assert (paths.output / "v2" / "snapshot.json").is_file()
+    state = load_state(paths.state)
+    assert [version.number for version in state.versions] == [1, 2]
+    assert state.quote == saved.quote and state.draft == saved.draft
+    assert state.phase is Phase.GENERATED
+    assert "Regenerated v2 from the saved quote: S/ " in paths.notes.read_text(encoding="utf-8")
+
+
+def test_regenerate_without_generated_quotation_exits_with_message(monkeypatch, paths, capsys):
+    recorder = Recorder(monkeypatch)
+    _set_state(paths, phase=Phase.PRICING, draft=approved_with_tasks())
+
+    with pytest.raises(SystemExit) as exit_info:
+        _regenerate(paths.root.parent)
+
+    assert exit_info.value.code == 1
+    assert recorder.calls == []
+    out = _plain(capsys.readouterr().out)
+    assert "Nothing to regenerate in 'crm'" in out
+    assert "quotation resume crm" in out
+
+
+def test_regenerate_unknown_workspace_exits_with_message(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        _regenerate(tmp_path, slug="missing")
+
+    assert exit_info.value.code == 1
+    assert "Workspace not found" in capsys.readouterr().out
+
+
+def test_regenerate_parser_accepts_slug_and_names_without_language():
+    parser = workspace_cli.build_parser()
+
+    args = parser.parse_args(["regenerate", "crm", "--project-name", "X"])
+
+    assert (args.command, args.slug, args.project_name) == ("regenerate", "crm", "X")
+    assert args.provider_name == "Daniel Calcina"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["regenerate", "crm", "--language", "en"])
+
+
+def test_failed_regeneration_saves_nothing_and_leaves_no_version_folder(
+    monkeypatch, paths, capsys
+):
+    Recorder(monkeypatch)
+    _resume(paths.root.parent)
+    notes_before = paths.notes.read_text(encoding="utf-8")
+
+    def broken_generate(draft, quote, output_dir, *_args):
+        (output_dir / "quotation-internal.docx").write_bytes(b"half")
+        raise RuntimeError("payment_schedule.0.amount Input should be a valid decimal")
+
+    monkeypatch.setattr(workspace_cli, "_phase_generate", broken_generate)
+
+    with pytest.raises(SystemExit) as exit_info:
+        _regenerate(paths.root.parent)
+
+    assert exit_info.value.code == 1
+    out = _plain(capsys.readouterr().out)
+    assert "Regeneration failed, nothing was saved:" in out
+    assert "valid decimal" in out
+    assert sorted(path.name for path in paths.output.iterdir()) == ["v1"]
+    assert [version.number for version in load_state(paths.state).versions] == [1]
+    assert paths.notes.read_text(encoding="utf-8") == notes_before
+
+
+def test_a_new_version_folder_appears_only_when_generation_completes(monkeypatch, paths):
+    recorder = Recorder(monkeypatch)
+    _resume(paths.root.parent)
+    seen: list[str] = []
+    original = workspace_cli._phase_generate
+
+    def spy(draft, quote, output_dir, *args):
+        seen.append(output_dir.name)
+        assert not (paths.output / "v2").exists()
+        original(draft, quote, output_dir, *args)
+
+    monkeypatch.setattr(workspace_cli, "_phase_generate", spy)
+
+    _regenerate(paths.root.parent)
+
+    assert recorder.calls[-1] == "generate"
+    assert seen and seen[0] != "v2"
+    assert sorted(path.name for path in paths.output.iterdir()) == ["v1", "v2"]
+    assert (paths.output / "v2" / "snapshot.json").is_file()

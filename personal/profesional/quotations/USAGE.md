@@ -89,6 +89,7 @@ without starting from zero. From inside `personal/profesional/quotations/`:
 uv run quotation setup "Sistema de Campañas Cableclub"   # create a workspace
 uv run quotation list                                    # see all your quotations
 uv run quotation resume sistema-de-campanas-cableclub    # continue where you left off
+uv run quotation regenerate sistema-de-campanas-cableclub # rebuild documents with the current template
 uv run quotation profile                                 # improve your developer profile
 ```
 
@@ -183,6 +184,24 @@ reopen the scope review first.
 
 `--language`, `--provider-name`, and `--project-name` (default: the workspace name) apply
 to the generated documents.
+
+### regenerate
+
+`regenerate` rebuilds the documents of a quotation that already has a generated version,
+using the current templates and conventions. It reuses the approved scope, tasks, and
+quote saved in `state.json`: no phase runs again and the amounts do not change. The
+commercial synthesis agent runs again to write the client-facing text.
+
+Each run creates a new version folder (`output/vN+1/`), so earlier versions are kept, and
+records it in `notes.md`. Documents are always generated in Spanish. Without a folder name
+it shows your quotations to pick one. `--provider-name` and `--project-name` work as in
+`resume`.
+
+A workspace without a generated version stops with:
+
+```
+Nothing to regenerate in '<folder>': it has no generated quotation yet. Run: uv run quotation resume <folder>
+```
 
 ### profile
 
@@ -394,6 +413,25 @@ commercial = build_commercial_proposal_from_quote(
 - **IGV:** Not included.
 - **Exclusions:** Cloud/hosting, scope changes after approval, new modules, third-party integrations not specified.
 
+### Commercial cost table
+
+- **Merged modules:** the synthesis agent merges related technical tasks of one business
+  feature into a single row, even across categories. For example "Sistema de notificaciones
+  de Venta" (backend, 5 h) and "Interfaz de Notificaciones" (frontend, 10 h) become one row
+  "Sistema de Notificaciones" with 15 h. The agent only decides the grouping. Every task is
+  counted exactly once: tasks it leaves out get their own row, a task it repeats stays in its
+  first row, and unknown task numbers are ignored.
+- **Payments:** the agent writes each milestone's label and condition; amounts always come
+  from the quote's payment schedule. Missing milestones are filled from the quote.
+- **Computed numbers:** row hours are the sum of the grouped tasks. Row costs split the
+  approved total in proportion to each row's raw cost (hours × category rate), rounded to
+  cents, so the rows always add up to the quote total. Duration and investment come from the
+  quote, never from the agent.
+- **Soles only:** every commercial document is reviewed before it is written. Any `$`, `US$`,
+  `USD`, or "dólares" becomes `S/.` or "soles", and the CLI lists each correction.
+- **Failed generation:** documents are written to a hidden `.vN.partial/` folder and renamed
+  to `vN/` only when generation completes, so a failure saves nothing.
+
 ---
 
 ## Running the tests
@@ -420,7 +458,7 @@ python -m compileall src tests
 quotations/
 ├── src/quotation_agents/
 │   ├── cli.py           # Interactive workflow phases
-│   ├── workspace_cli.py # Entry point: setup, list, resume, profile
+│   ├── workspace_cli.py # Entry point: setup, list, resume, regenerate, profile
 │   ├── workspace.py     # Workspace folders, names and listing
 │   ├── state.py         # state.json model (phase, approved data, digests)
 │   ├── notes.py         # Append-only notes.md log

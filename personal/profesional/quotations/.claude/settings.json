@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR/.claude/skills/docx/SKILL.md\" || (cd \"$CLAUDE_PROJECT_DIR\" && npx -y skills add https://github.com/anthropics/skills --skill docx -a claude-code -y >/dev/null 2>&1 && echo 'Installed project skill: docx')",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

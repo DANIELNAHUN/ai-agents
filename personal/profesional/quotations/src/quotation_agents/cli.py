@@ -55,6 +55,7 @@ from quotation_agents import (
     create_decomposition_agent,
     create_requirement_inference_agent,
     decompose_category,
+    enforce_soles,
     generate_commercial_proposal_documents,
     generate_proposal_documents,
     review_quote,
@@ -639,6 +640,12 @@ def _phase_generate(
             _agent_label("Commercial synthesis agent", model, progress),
         ),
     )
+
+    commercial, currency_fixes = enforce_soles(commercial)
+    if currency_fixes:
+        _warn("Currency corrected to soles (S/.):")
+        for fix in currency_fixes:
+            _bullet(fix)
 
     commercial_docs = generate_commercial_proposal_documents(
         commercial,

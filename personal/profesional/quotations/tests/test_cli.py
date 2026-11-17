@@ -500,29 +500,14 @@ def test_agent_label_uses_the_reporter_separator():
 
 
 COMMERCIAL_RESPONSE = {
-    "header": {
-        "project_name": "Claims module",
-        "client_name": "Cableclub",
-        "provider_name": "Daniel Calcina",
-    },
     "project_understanding": {
         "summary": "Claims inbox for the support team.",
         "components": [{"title": "Claims inbox", "description": "Track client claims"}],
     },
-    "task_estimation": {
-        "tasks": [{"name": "Claims inbox", "hours": 14, "cost": 420.00}],
-        "discount": 0,
-        "total_hours": 14,
-        "total_cost": 420.00,
-    },
-    "budget_summary": {
-        "estimated_duration": "14 hours",
-        "investment_summary": "S/ 420.00",
-        "includes": ["Backend"],
-        "excludes": ["Hosting"],
-    },
+    "task_groups": [{"name": "Claims inbox", "task_numbers": [1]}],
+    "budget_scope": {"includes": ["Backend"], "excludes": ["Hosting"]},
     "payment_schedule": [
-        {"milestone_label": "Single payment", "amount": 420.00, "condition": "on delivery"}
+        {"milestone_label": "Single payment", "amount": 420.00, "condition": "on delivery of $420"}
     ],
     "deliverables": [{"name": "Deliverable 1", "content": "Source code"}],
 }
@@ -551,5 +536,7 @@ def test_generate_runs_the_tracked_commercial_agent_and_writes_both_documents(
     assert len(agent.requests) == 1
     assert agent.configs[0] is not None and agent.configs[0]["callbacks"]
     assert "✔ Commercial synthesis agent" in output
+    assert "Currency corrected to soles (S/.):" in output
+    assert "'on delivery of $420' -> 'on delivery of S/. 420'" in output
     assert (tmp_path / "quotation-internal.docx").is_file()
     assert (tmp_path / "quotation-commercial.docx").is_file()
