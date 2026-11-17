@@ -20,6 +20,7 @@ from .commercial import (
     CommercialUnderstanding,
     build_commercial_proposal_from_quote,
     create_commercial_synthesis_agent,
+    enforce_soles,
     synthesize_commercial_proposal,
 )
 from .config import (
@@ -148,6 +149,7 @@ __all__ = [
     "WorkCategory",
     "approve_draft",
     "build_commercial_proposal_from_quote",
+    "enforce_soles",
     "build_payment_schedule",
     "calculate_effort",
     "calculate_quote",

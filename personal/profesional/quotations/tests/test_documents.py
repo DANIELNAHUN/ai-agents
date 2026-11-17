@@ -177,3 +177,39 @@ def test_proposal_rejects_quote_review_errors_before_writing(tmp_path) -> None:
         generate_proposal_documents(draft, quote, tmp_path)
 
     assert tuple(tmp_path.iterdir()) == ()
+
+
+def test_spanish_internal_proposal_has_no_english_labels(tmp_path) -> None:
+    tasks = [
+        task(WorkCategory.BACKEND, "Build booking API", "20"),
+        task(WorkCategory.FRONTEND, "Build booking screen", "10"),
+    ]
+    draft = approved(tasks)
+    modules = split_modules(tasks, {"Core API": [0], "Booking UI": [1]})
+    result = generate_proposal_documents(
+        draft, calculate_quote(draft, modules=modules), tmp_path, language="es"
+    )
+    content = docx_text(result.docx_path)
+
+    for english in ("Band", "Amount (PEN)", " hours)", "Advance", "Project completion"):
+        assert english not in content
+    assert "Rango" in content and "Monto (PEN)" in content
+    assert "Build booking API (20 horas)" in content
+    assert "Adelanto" in content
+
+    single = approved([task(WorkCategory.BACKEND, "Build booking API", "30")])
+    result = generate_proposal_documents(
+        single, calculate_quote(single), tmp_path / "single", language="es"
+    )
+    content = docx_text(result.docx_path)
+    assert "Adelanto" in content and "Cierre del proyecto" in content
+    assert "Project completion" not in content
+
+
+def test_english_internal_proposal_keeps_english_labels(tmp_path) -> None:
+    draft = approved([task(WorkCategory.BACKEND, "Build booking API", "20")])
+    result = generate_proposal_documents(draft, calculate_quote(draft), tmp_path, language="en")
+    content = docx_text(result.docx_path)
+
+    assert "Band" in content and "Amount (PEN)" in content
+    assert "Build booking API (20 hours)" in content

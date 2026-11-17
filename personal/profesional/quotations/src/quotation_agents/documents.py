@@ -9,11 +9,12 @@ import tempfile
 import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 from xml.etree import ElementTree as ET
 
-from .commercial import CommercialProposal
+from .commercial import PAYMENT_LABELS_ES, CommercialProposal, enforce_soles
 from .models import QuotationDraft, QuotationTask, WorkCategory
 from .pricing import QuoteResult, _draft_fingerprint
 from .review import review_quote
@@ -28,7 +29,8 @@ _CT = "http://schemas.openxmlformats.org/package/2006/content-types"
 _R = "http://schemas.openxmlformats.org/package/2006/relationships"
 ET.register_namespace("w", _W)
 ET.register_namespace("", _CT)
-ET.register_namespace("r", _R)
+_OR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ET.register_namespace("r", _OR)
 
 
 class ProposalDocumentError(ValueError):
@@ -94,6 +96,9 @@ _TEXT = {
         "milestone": "Milestone / module",
         "amount": "Amount (PEN)",
         "percentage": "Share",
+        "band": "Band",
+        "band_amount": "Amount (PEN)",
+        "hours_unit": "hours",
         "conditions": "Commercial conditions",
         "igv": "IGV is excluded.",
         "validity": "This quotation is valid for 14 calendar days.",
@@ -134,6 +139,9 @@ _TEXT = {
         "milestone": "Hito / módulo",
         "amount": "Monto (PEN)",
         "percentage": "Participación",
+        "band": "Rango",
+        "band_amount": "Monto (PEN)",
+        "hours_unit": "horas",
         "conditions": "Condiciones comerciales",
         "igv": "El IGV no está incluido.",
         "validity": "Esta cotización tiene una vigencia de 14 días calendario.",
@@ -201,9 +209,13 @@ def _items(document: ET.Element, values: Sequence[str], text: dict[str, str]) ->
         document.append(_paragraph(f"- {value}"))
 
 
-def _task_text(task: QuotationTask) -> str:
-    hours = "" if task.estimated_hours is None else f" ({task.estimated_hours} hours)"
-    return f"{task.description}{hours}"
+_PAYMENT_LABELS = {"es": PAYMENT_LABELS_ES}
+
+
+def _task_text(task: QuotationTask, text: dict[str, str]) -> str:
+    if task.estimated_hours is None:
+        return task.description
+    return f"{task.description} ({task.estimated_hours} {text['hours_unit']})"
 
 
 def _proposal_xml(draft: QuotationDraft, quote: QuoteResult, language: Language) -> bytes:
@@ -224,7 +236,7 @@ def _proposal_xml(draft: QuotationDraft, quote: QuoteResult, language: Language)
         if not category_tasks:
             body.append(_paragraph(text["no_tasks"]))
         for task in category_tasks:
-            body.append(_paragraph(_task_text(task)))
+            body.append(_paragraph(_task_text(task, text)))
 
     body.append(_paragraph(text["effort"], style="Heading1"))
     body.append(_paragraph(f"{text['hours']}: {quote.effort.total_hours}"))
@@ -245,7 +257,7 @@ def _proposal_xml(draft: QuotationDraft, quote: QuoteResult, language: Language)
     body.append(
         _table(
             [
-                ["Band", "Amount (PEN)"],
+                [text["band"], text["band_amount"]],
                 [text["minimum"], _money(quote.minimum_amount)],
                 [text["ideal"], _money(quote.ideal_amount)],
                 [text["maximum"], _money(quote.maximum_amount)],
@@ -257,7 +269,8 @@ def _proposal_xml(draft: QuotationDraft, quote: QuoteResult, language: Language)
     payment_rows = [[text["milestone"], text["amount"], text["percentage"]]]
     for payment in quote.payment_schedule.payments:
         share = "" if payment.percentage is None else f"{payment.percentage * 100}%"
-        payment_rows.append([payment.label, _money(payment.amount), share])
+        label = _PAYMENT_LABELS.get(language, {}).get(payment.label, payment.label)
+        payment_rows.append([label, _money(payment.amount), share])
     body.append(_table(payment_rows))
 
     body.append(_paragraph(text["conditions"], style="Heading1"))
@@ -276,7 +289,22 @@ def _proposal_xml(draft: QuotationDraft, quote: QuoteResult, language: Language)
     return ET.tostring(document, encoding="utf-8", xml_declaration=True)
 
 
-def _docx_bytes(document_xml: bytes) -> bytes:
+@dataclass(frozen=True)
+class _Part:
+    """An extra package part referenced from ``word/document.xml``."""
+
+    name: str
+    content: bytes
+    content_type: str
+    relationship_type: str
+    relationship_id: str
+
+
+def _docx_bytes(document_xml: bytes, parts: Sequence[_Part] = ()) -> bytes:
+    overrides = "".join(
+        f'<Override PartName="/word/{part.name}" ContentType="{part.content_type}"/>'
+        for part in parts
+    )
     content_types = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<Types xmlns="{_CT}">'
@@ -285,6 +313,7 @@ def _docx_bytes(document_xml: bytes) -> bytes:
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/word/document.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        f"{overrides}"
         '</Types>'
     ).encode()
     relationships = (
@@ -295,19 +324,25 @@ def _docx_bytes(document_xml: bytes) -> bytes:
         'Target="word/document.xml"/>'
         '</Relationships>'
     ).encode()
+    part_relationships = "".join(
+        f'<Relationship Id="{part.relationship_id}" Type="{part.relationship_type}" '
+        f'Target="{part.name}"/>'
+        for part in parts
+    )
     document_relationships = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<Relationships xmlns="{_R}"/>'
+        f'<Relationships xmlns="{_R}">{part_relationships}</Relationships>'
     ).encode()
-    parts = (
+    package = (
         ("[Content_Types].xml", content_types),
         ("_rels/.rels", relationships),
         ("word/document.xml", document_xml),
         ("word/_rels/document.xml.rels", document_relationships),
+        *((f"word/{part.name}", part.content) for part in parts),
     )
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for name, content in parts:
+        for name, content in package:
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 0
@@ -457,54 +492,319 @@ def generate_proposal_documents(
     return ProposalDocuments(docx_path, pdf_path, docx_validation, pdf_validation)
 
 
+# Commercial proposal layout, mirroring the approved client template
+# (Arial, US Letter, centered title, numbered headings, bordered estimation table).
+_FONT = "Arial"
+_BODY_SIZE = 22  # half-points: 11pt
+_META_SIZE = 24  # 12pt
+_HEADING_SIZE = 28  # 14pt
+_TITLE_SIZE = 32  # 16pt
+_FOOTER_SIZE = 20  # 10pt
+_FOOTER_COLOR = "434343"
+_TABLE_COLUMNS = (5000, 2180, 2180)
+_BULLET_NUM_ID = "1"
+_DASH_NUM_ID = "2"
+_FOOTER_REL_ID = "rId3"
+_REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_WML_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml"
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+def _w(tag: str) -> str:
+    return f"{{{_W}}}{tag}"
+
+
+def _set(parent: ET.Element, tag: str, **attributes: str) -> ET.Element:
+    return ET.SubElement(parent, _w(tag), {_w(key): value for key, value in attributes.items()})
+
+
+def _run(
+    text: str,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+    size: int = _BODY_SIZE,
+    color: str | None = None,
+) -> ET.Element:
+    run = ET.Element(_w("r"))
+    properties = _set(run, "rPr")
+    if bold:
+        _set(properties, "b")
+        _set(properties, "bCs")
+    if italic:
+        _set(properties, "i")
+        _set(properties, "iCs")
+    if color:
+        _set(properties, "color", val=color)
+    _set(properties, "sz", val=str(size))
+    _set(properties, "szCs", val=str(size))
+    node = _set(run, "t")
+    node.set(_XML_SPACE, "preserve")
+    node.text = text
+    return run
+
+
+def _rich_paragraph(
+    *runs: ET.Element,
+    style: str | None = None,
+    align: str | None = None,
+    before: int = 0,
+    after: int = 0,
+    keep_next: bool = False,
+    num_id: str | None = None,
+) -> ET.Element:
+    paragraph = ET.Element(_w("p"))
+    properties = _set(paragraph, "pPr")
+    if style:
+        _set(properties, "pStyle", val=style)
+    if keep_next:
+        _set(properties, "keepNext")
+    if num_id:
+        numbering = _set(properties, "numPr")
+        _set(numbering, "ilvl", val="0")
+        _set(numbering, "numId", val=num_id)
+    if not style:
+        _set(properties, "spacing", before=str(before), after=str(after))
+    if align:
+        _set(properties, "jc", val=align)
+    paragraph.extend(runs)
+    return paragraph
+
+
+def _labeled(label: str, value: str, *, size: int = _BODY_SIZE) -> ET.Element:
+    return _rich_paragraph(_run(label, bold=True, size=size), _run(value, size=size), after=40)
+
+
+def _heading(text: str) -> ET.Element:
+    return _rich_paragraph(_run(text, bold=True, size=_HEADING_SIZE), style="Heading1")
+
+
+def _cost(value: Decimal) -> str:
+    return f"S/. {value:.2f}"
+
+
+def _hours(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _estimation_table(proposal: CommercialProposal) -> ET.Element:
+    estimation = proposal.estimation
+    rows: list[tuple[tuple[str, str, str], bool]] = [
+        (("TAREAS", "HORAS TOTAL", "COSTO TOTAL"), True),
+        *(((task.name, _hours(task.hours), _cost(task.cost)), False) for task in estimation.tasks),
+    ]
+    if estimation.discount > 0:
+        rows.append((("Descuento", "", f"-{_cost(estimation.discount)}"), False))
+    rows.append((("TOTAL", _hours(estimation.total_hours), _cost(estimation.total_cost)), True))
+
+    table = ET.Element(_w("tbl"))
+    properties = _set(table, "tblPr")
+    _set(properties, "tblW", w=str(sum(_TABLE_COLUMNS)), type="dxa")
+    borders = _set(properties, "tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        _set(borders, side, val="single", sz="8", space="0", color="000000")
+    _set(properties, "tblLayout", type="fixed")
+    margins = _set(properties, "tblCellMar")
+    for side in ("top", "left", "bottom", "right"):
+        _set(margins, side, w="100", type="dxa")
+    grid = _set(table, "tblGrid")
+    for width in _TABLE_COLUMNS:
+        _set(grid, "gridCol", w=str(width))
+
+    for index, (values, bold) in enumerate(rows):
+        header = index == 0
+        row = _set(table, "tr")
+        row_properties = _set(row, "trPr")
+        _set(row_properties, "cantSplit")
+        _set(row_properties, "trHeight", val="418", hRule="atLeast")
+        if header:
+            _set(row_properties, "tblHeader")
+        aligns = ("center",) * 3 if header else ("left", "center", "right")
+        for value, width, align in zip(values, _TABLE_COLUMNS, aligns):
+            cell = _set(row, "tc")
+            cell_properties = _set(cell, "tcPr")
+            _set(cell_properties, "tcW", w=str(width), type="dxa")
+            _set(cell_properties, "vAlign", val="center")
+            cell.append(_rich_paragraph(_run(value, bold=bold), align=align))
+    return table
+
+
 def _commercial_proposal_xml(proposal: CommercialProposal) -> bytes:
-    document = ET.Element(f"{{{_W}}}document")
-    body = ET.SubElement(document, f"{{{_W}}}body")
+    document = ET.Element(_w("document"))
+    body = _set(document, "body")
 
-    body.append(_paragraph(proposal.project_name, style="Title", bold=True))
-    body.append(_paragraph(f"Propuesta Comercial – {proposal.project_name}", bold=True))
-    body.append(_paragraph(f"Proyecto: {proposal.project_name}"))
-    body.append(_paragraph(f"Cliente: {proposal.client_name}"))
-    body.append(_paragraph(f"Proveedor: {proposal.provider_name}"))
+    body.append(
+        _rich_paragraph(
+            _run(f"Propuesta Comercial — {proposal.project_name}", bold=True, size=_TITLE_SIZE),
+            align="center",
+            after=320,
+        )
+    )
+    body.append(_labeled("Proyecto: ", proposal.project_name, size=_META_SIZE))
+    body.append(_labeled("Cliente: ", proposal.client_name, size=_META_SIZE))
+    body.append(_labeled("Proveedor: ", proposal.provider_name, size=_META_SIZE))
 
-    body.append(_paragraph("1. Entendimiento del proyecto", style="Heading1", bold=True))
-    body.append(_paragraph(proposal.understanding.summary))
-    for comp in proposal.understanding.components:
-        body.append(_paragraph(f"• {comp.title}: {comp.description}"))
+    body.append(_heading("1. Entendimiento del proyecto"))
+    body.append(_rich_paragraph(_run(proposal.understanding.summary), after=120))
+    body.append(_rich_paragraph(_run("La solución considera estos módulos:"), after=60))
+    for component in proposal.understanding.components:
+        body.append(
+            _rich_paragraph(
+                _run(component.title, bold=True),
+                _run(f": {component.description}"),
+                num_id=_DASH_NUM_ID,
+                after=60,
+            )
+        )
 
-    body.append(_paragraph("2. Estimacion horas por tareas", style="Heading1", bold=True))
-    rows: list[list[str]] = [["TAREAS", "HORAS TOTAL", "COSTO TOTAL"]]
-    for task in proposal.estimation.tasks:
-        rows.append([task.name, str(task.hours), f"S/. {task.cost:.2f}"])
-    if proposal.estimation.discount > 0:
-        rows.append(["Descuento", "", f"-S/. {proposal.estimation.discount:.2f}"])
-    rows.append([
-        "TOTAL",
-        str(proposal.estimation.total_hours),
-        f"S/. {proposal.estimation.total_cost:.2f}",
-    ])
-    body.append(_table(rows))
+    body.append(_heading("2. Estimación horas por tareas"))
+    body.append(_estimation_table(proposal))
 
-    body.append(_paragraph("3. Presupuesto estimado", style="Heading1", bold=True))
-    body.append(_paragraph(f"Total estimado: {proposal.budget.estimated_duration}"))
-    body.append(_paragraph(f"Inversion estimada: {proposal.budget.investment_summary}"))
-    body.append(_paragraph("Incluye:", bold=True))
-    for item in proposal.budget.includes:
-        body.append(_paragraph(f"• {item}"))
-    body.append(_paragraph("No incluye:", bold=True))
-    for item in proposal.budget.excludes:
-        body.append(_paragraph(f"• {item}"))
+    budget = proposal.budget
+    body.append(_heading("3. Presupuesto estimado"))
+    body.append(_labeled("Total estimado: ", budget.estimated_duration))
+    body.append(_labeled("Inversión estimada: ", budget.investment_summary))
+    for label, items in (("Incluye:", budget.includes), ("No incluye:", budget.excludes)):
+        body.append(_rich_paragraph(_run(label, bold=True), before=160, after=40, keep_next=True))
+        for item in items:
+            body.append(_rich_paragraph(_run(item), num_id=_BULLET_NUM_ID, after=20))
 
-    body.append(_paragraph("4. Pago", style="Heading1", bold=True))
-    for p in proposal.payment_schedule:
-        body.append(_paragraph(f"{p.milestone_label} de S/. {p.amount:.2f} {p.condition}"))
+    body.append(_heading("4. Pago"))
+    for payment in proposal.payment_schedule:
+        body.append(
+            _rich_paragraph(
+                _run(payment.milestone_label, bold=True),
+                _run(f" de {_cost(payment.amount)} {payment.condition}"),
+                after=60,
+            )
+        )
 
-    body.append(_paragraph("5. Entregables", style="Heading1", bold=True))
-    for d in proposal.deliverables:
-        body.append(_paragraph(f"{d.name}: {d.content}"))
+    body.append(_heading("5. Entregables"))
+    for deliverable in proposal.deliverables:
+        body.append(_labeled(f"{deliverable.name}: ", deliverable.content))
 
-    body.append(ET.Element(f"{{{_W}}}sectPr"))
+    section = _set(body, "sectPr")
+    ET.SubElement(
+        section, _w("footerReference"), {_w("type"): "default", f"{{{_OR}}}id": _FOOTER_REL_ID}
+    )
+    _set(section, "pgSz", w="12240", h="15840")
+    _set(
+        section,
+        "pgMar",
+        top="1000",
+        right="1440",
+        bottom="1000",
+        left="1315",
+        header="0",
+        footer="500",
+        gutter="0",
+    )
     return ET.tostring(document, encoding="utf-8", xml_declaration=True)
+
+
+def _commercial_styles_xml() -> bytes:
+    styles = ET.Element(_w("styles"))
+    defaults = _set(styles, "docDefaults")
+    run_defaults = _set(_set(defaults, "rPrDefault"), "rPr")
+    _set(run_defaults, "rFonts", ascii=_FONT, hAnsi=_FONT, eastAsia=_FONT, cs=_FONT)
+    _set(run_defaults, "color", val="000000")
+    _set(run_defaults, "sz", val=str(_BODY_SIZE))
+    _set(run_defaults, "szCs", val=str(_BODY_SIZE))
+    _set(run_defaults, "lang", val="es-PE")
+    paragraph_defaults = _set(_set(defaults, "pPrDefault"), "pPr")
+    _set(paragraph_defaults, "spacing", after="0", line="264", lineRule="auto")
+
+    normal = _set(styles, "style", type="paragraph", default="1", styleId="Normal")
+    _set(normal, "name", val="Normal")
+    _set(normal, "qFormat")
+
+    heading = _set(styles, "style", type="paragraph", styleId="Heading1")
+    _set(heading, "name", val="heading 1")
+    _set(heading, "basedOn", val="Normal")
+    _set(heading, "next", val="Normal")
+    _set(heading, "qFormat")
+    heading_paragraph = _set(heading, "pPr")
+    _set(heading_paragraph, "keepNext")
+    _set(heading_paragraph, "keepLines")
+    _set(heading_paragraph, "spacing", before="400", after="160")
+    _set(heading_paragraph, "outlineLvl", val="0")
+    heading_run = _set(heading, "rPr")
+    _set(heading_run, "rFonts", ascii=_FONT, hAnsi=_FONT, eastAsia=_FONT, cs=_FONT)
+    _set(heading_run, "b")
+    _set(heading_run, "bCs")
+    _set(heading_run, "sz", val=str(_HEADING_SIZE))
+    _set(heading_run, "szCs", val=str(_HEADING_SIZE))
+
+    table = _set(styles, "style", type="table", default="1", styleId="TableNormal")
+    _set(table, "name", val="Normal Table")
+    return ET.tostring(styles, encoding="utf-8", xml_declaration=True)
+
+
+def _commercial_numbering_xml() -> bytes:
+    numbering = ET.Element(_w("numbering"))
+    for abstract_id, symbol in (("0", "•"), ("1", "-")):
+        abstract = _set(numbering, "abstractNum", abstractNumId=abstract_id)
+        _set(abstract, "multiLevelType", val="singleLevel")
+        level = _set(abstract, "lvl", ilvl="0")
+        _set(level, "start", val="1")
+        _set(level, "numFmt", val="bullet")
+        _set(level, "lvlText", val=symbol)
+        _set(level, "lvlJc", val="left")
+        _set(_set(level, "pPr"), "ind", left="360", hanging="240")
+        _set(_set(level, "rPr"), "rFonts", ascii=_FONT, hAnsi=_FONT, cs=_FONT, hint="default")
+    for num_id, abstract_id in ((_BULLET_NUM_ID, "0"), (_DASH_NUM_ID, "1")):
+        number = _set(numbering, "num", numId=num_id)
+        _set(number, "abstractNumId", val=abstract_id)
+    return ET.tostring(numbering, encoding="utf-8", xml_declaration=True)
+
+
+def _commercial_footer_xml(proposal: CommercialProposal) -> bytes:
+    footer = ET.Element(_w("ftr"))
+
+    def footer_run(text: str) -> ET.Element:
+        return _run(text, italic=True, size=_FOOTER_SIZE, color=_FOOTER_COLOR)
+
+    page = _rich_paragraph(footer_run("Página "), align="center")
+    _set(ET.SubElement(page, _w("r")), "fldChar", fldCharType="begin")
+    instruction = _set(ET.SubElement(page, _w("r")), "instrText")
+    instruction.set(_XML_SPACE, "preserve")
+    instruction.text = "PAGE"
+    _set(ET.SubElement(page, _w("r")), "fldChar", fldCharType="separate")
+    page.append(footer_run("1"))
+    _set(ET.SubElement(page, _w("r")), "fldChar", fldCharType="end")
+    footer.append(page)
+    footer.append(
+        _rich_paragraph(
+            footer_run(f"{proposal.client_name} - {proposal.project_name}"), align="right"
+        )
+    )
+    return ET.tostring(footer, encoding="utf-8", xml_declaration=True)
+
+
+def _commercial_parts(proposal: CommercialProposal) -> tuple[_Part, ...]:
+    return (
+        _Part(
+            "styles.xml",
+            _commercial_styles_xml(),
+            f"{_WML_CT}.styles+xml",
+            f"{_REL_BASE}/styles",
+            "rId1",
+        ),
+        _Part(
+            "numbering.xml",
+            _commercial_numbering_xml(),
+            f"{_WML_CT}.numbering+xml",
+            f"{_REL_BASE}/numbering",
+            "rId2",
+        ),
+        _Part(
+            "footer1.xml",
+            _commercial_footer_xml(proposal),
+            f"{_WML_CT}.footer+xml",
+            f"{_REL_BASE}/footer",
+            _FOOTER_REL_ID,
+        ),
+    )
 
 
 def generate_commercial_proposal_documents(
@@ -515,7 +815,7 @@ def generate_commercial_proposal_documents(
     pdf_converter: PdfConverter | None = None,
     overwrite: bool = False,
 ) -> ProposalDocuments:
-    """Generate a client-facing proposal DOCX/PDF matching Cableclub format."""
+    """Generate a client-facing proposal DOCX/PDF following the client template."""
 
     if not isinstance(proposal, CommercialProposal):
         raise ProposalDocumentError("proposal must be an instance of CommercialProposal")
@@ -525,8 +825,10 @@ def generate_commercial_proposal_documents(
     if not overwrite and (docx_path.exists() or (pdf_path is not None and pdf_path.exists())):
         raise ProposalDocumentError("refusing to overwrite an existing proposal output")
 
+    proposal, _ = enforce_soles(proposal)
     xml = _commercial_proposal_xml(proposal)
-    _write_bytes(docx_path, _docx_bytes(xml), overwrite=overwrite)
+    package = _docx_bytes(xml, _commercial_parts(proposal))
+    _write_bytes(docx_path, package, overwrite=overwrite)
     docx_validation = validate_docx(docx_path)
     pdf_validation = None
     if pdf_converter is not None and pdf_path is not None:

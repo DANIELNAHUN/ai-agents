@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from langchain.agents import create_agent
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .models import QuotationDraft, WorkCategory
 from .pricing import QuoteModule, QuoteResult
 from .provider import Invocation, ProviderError, resolve_invocation
+from .rates import HOURLY_RATES
 from .workflow import require_approved_draft
 
 COMMERCIAL_SYNTHESIS_SYSTEM_PROMPT = """You synthesize internal technical software tasks into a
@@ -23,11 +25,27 @@ Translate technical tasks (e.g. backend endpoints, database tables, devops pipel
 functional, business-facing modules that non-technical stakeholders can understand.
 Follow the Cableclub proposal format:
 1. Executive understanding and modular components.
-2. Estimated hours and costs per module.
-3. Summary of duration, investment, inclusions, and exclusions.
+2. Module rows for the estimation table (task_groups).
+3. Inclusions and exclusions.
 4. Payment milestones tied to verifiable module completions.
 5. Tangible deliverables per milestone.
-Amounts must strictly reconcile with the approved quote calculations.
+Merge related technical tasks of the same business feature into one module row, even when
+they belong to different categories: for example "Sistema de notificaciones de Venta"
+(backend) and "Interfaz de Notificaciones" (frontend) become one row "Sistema de
+Notificaciones". The client must not see a backend/frontend split. Reference tasks by their
+#number; every task number must appear in exactly one group, including deployment, DevOps
+and coordination tasks. Use the same modules for task_groups and for the components of the
+project understanding, with the same names, so the table matches the described modules.
+Do not compute hours or costs: they are calculated from the approved quote.
+Write one payment milestone per entry of the approved payment schedule, in the same order,
+with only its label and condition: payment amounts are filled in from the quote. The
+document renders "<label> de S/. <amount> <condition>", so write the condition as a phrase
+that continues that sentence, e.g. "para iniciar el proyecto", without a "Condición:" prefix.
+Any amount mentioned in text is in Peruvian soles: write it as "S/." and never use "$",
+"USD" or dollars.
+Write every client-facing text in Spanish (neutral, professional register), including
+module names, descriptions, inclusions, exclusions, payment labels, conditions, and
+deliverables, even when the input data is in another language.
 Return only the structured response.
 """
 
@@ -155,6 +173,238 @@ class CommercialProposal(BaseModel):
         return self.budget_summary
 
 
+class CommercialTaskGroup(BaseModel):
+    """Technical tasks (by #number) merged into one client-facing estimation row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    task_numbers: list[int] = Field(min_length=1)
+
+
+class CommercialScopeText(BaseModel):
+    """Inclusions and exclusions written by the synthesis agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    includes: list[str] = Field(min_length=1)
+    excludes: list[str] = Field(min_length=1)
+
+
+class CommercialPaymentText(BaseModel):
+    """Label and condition of one quote payment; the amount comes from the quote."""
+
+    # Ignore stray fields such as an "amount" the agent should not have written.
+    model_config = ConfigDict(extra="ignore")
+
+    milestone_label: str = Field(min_length=1)
+    condition: str = Field(min_length=1)
+
+
+class CommercialSynthesis(BaseModel):
+    """What the synthesis agent writes; every number is filled in from the quote."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_understanding: CommercialUnderstanding
+    task_groups: list[CommercialTaskGroup] = Field(min_length=1)
+    budget_scope: CommercialScopeText
+    payment_schedule: list[CommercialPaymentText] = Field(min_length=1)
+    deliverables: list[CommercialDeliverable] = Field(min_length=1)
+
+
+_CENT = Decimal("0.01")
+
+PAYMENT_LABELS_ES = {
+    "Full project": "Proyecto completo",
+    "Advance": "Adelanto",
+    "Project completion": "Cierre del proyecto",
+}
+_DEFAULT_PAYMENT_CONDITION = "según el avance del proyecto"
+_CONDITION_PREFIX = re.compile(r"^\s*condici[oó]n\s*:\s*", re.IGNORECASE)
+CATEGORY_NAMES_ES = {
+    WorkCategory.PLANNING_AND_COORDINATION: "Planificación y Coordinación",
+    WorkCategory.BACKEND: "Desarrollo Backend y APIs",
+    WorkCategory.FRONTEND: "Desarrollo Frontend e Interfaz",
+    WorkCategory.DEVOPS: "Despliegue e Infraestructura",
+}
+
+
+def _payments(
+    texts: Sequence[CommercialPaymentText], quote: QuoteResult
+) -> list[CommercialPayment]:
+    """One payment per quote milestone, in order, with the agent's wording when present."""
+
+    payments = []
+    for index, payment in enumerate(quote.payment_schedule.payments):
+        if index < len(texts):
+            label = texts[index].milestone_label
+            condition = _CONDITION_PREFIX.sub("", texts[index].condition) or (
+                _DEFAULT_PAYMENT_CONDITION
+            )
+        else:
+            label = PAYMENT_LABELS_ES.get(payment.label, payment.label)
+            condition = _DEFAULT_PAYMENT_CONDITION
+        payments.append(
+            CommercialPayment(milestone_label=label, amount=payment.amount, condition=condition)
+        )
+    return payments
+
+
+def allocate_costs(raw_amounts: Sequence[Decimal], total: Decimal) -> list[Decimal]:
+    """Split ``total`` across rows proportionally to their raw cost, summing exactly."""
+
+    total = total.quantize(_CENT, rounding=ROUND_HALF_UP)
+    if not raw_amounts:
+        return []
+    raw_total = sum(raw_amounts, Decimal("0"))
+    weights = list(raw_amounts) if raw_total > 0 else [Decimal("1")] * len(raw_amounts)
+    weight_total = sum(weights, Decimal("0"))
+    shares = [
+        (total * weight / weight_total).quantize(_CENT, rounding=ROUND_HALF_UP)
+        for weight in weights
+    ]
+    largest = max(range(len(weights)), key=lambda index: weights[index])
+    shares[largest] += total - sum(shares, Decimal("0"))
+    return shares
+
+
+def _duration_text(quote: QuoteResult) -> str:
+    calendar_days = quote.effort.calendar_days
+    weeks, remaining_days = divmod(calendar_days, 7)
+    parts = []
+    if weeks > 0:
+        parts.append(f"{weeks} {'semana' if weeks == 1 else 'semanas'}")
+    if remaining_days > 0 or not parts:
+        parts.append(f"{remaining_days} {'día' if remaining_days == 1 else 'días'}")
+    return f"{quote.effort.total_hours} horas / {' '.join(parts)}"
+
+
+def _investment_text(quote: QuoteResult) -> str:
+    return f"S/. {quote.selected_amount:.2f} en total del proyecto"
+
+
+def _group_rows(
+    draft: QuotationDraft,
+    quote: QuoteResult,
+    groups: Sequence[CommercialTaskGroup],
+) -> list[CommercialTaskItem]:
+    tasks = draft.tasks
+    assigned: set[int] = set()
+    members: list[tuple[str, list[int]]] = []
+    # Resolve the agent's grouping deterministically so every task is counted exactly once:
+    # a repeated task stays in its first row, unknown numbers are ignored, emptied rows drop.
+    for group in groups:
+        numbers = []
+        for number in group.task_numbers:
+            if 1 <= number <= len(tasks) and number not in assigned:
+                assigned.add(number)
+                numbers.append(number)
+        if numbers:
+            members.append((group.name, numbers))
+    # Tasks the agent left out are grouped by category under a client-facing Spanish name.
+    for category in WorkCategory:
+        leftovers = [
+            number
+            for number in range(1, len(tasks) + 1)
+            if number not in assigned and tasks[number - 1].category is category
+        ]
+        if leftovers:
+            members.append((CATEGORY_NAMES_ES[category], leftovers))
+
+    rates = {estimate.category: estimate.rate for estimate in quote.effort.categories}
+    hours: list[Decimal] = []
+    raw: list[Decimal] = []
+    for _name, numbers in members:
+        row_hours = Decimal("0")
+        row_raw = Decimal("0")
+        for number in numbers:
+            task = tasks[number - 1]
+            task_hours = task.estimated_hours or Decimal("0")
+            row_hours += task_hours
+            row_raw += task_hours * rates.get(task.category, HOURLY_RATES[task.category])
+        hours.append(row_hours)
+        raw.append(row_raw)
+    costs = allocate_costs(raw, quote.selected_amount)
+    return [
+        CommercialTaskItem(name=name, hours=row_hours, cost=cost)
+        for (name, _numbers), row_hours, cost in zip(members, hours, costs)
+    ]
+
+
+def assemble_commercial_proposal(
+    synthesis: CommercialSynthesis,
+    draft: QuotationDraft,
+    quote: QuoteResult,
+    *,
+    project_name: str,
+    provider_name: str,
+) -> CommercialProposal:
+    """Combine the agent's text with hours, costs and totals computed from the quote."""
+
+    return CommercialProposal(
+        header=CommercialHeader(
+            project_name=project_name,
+            client_name=draft.client_company,
+            provider_name=provider_name,
+        ),
+        project_understanding=synthesis.project_understanding,
+        task_estimation=CommercialEstimation(
+            tasks=_group_rows(draft, quote, synthesis.task_groups),
+            total_hours=quote.effort.total_hours,
+            total_cost=quote.selected_amount,
+        ),
+        budget_summary=CommercialBudget(
+            estimated_duration=_duration_text(quote),
+            investment_summary=_investment_text(quote),
+            includes=synthesis.budget_scope.includes,
+            excludes=synthesis.budget_scope.excludes,
+        ),
+        payment_schedule=_payments(synthesis.payment_schedule, quote),
+        deliverables=synthesis.deliverables,
+    )
+
+
+_CURRENCY_FIXES = (
+    # "2700 USD" / "2700 dólares" -> "S/. 2700"
+    (re.compile(r"(\d[\d.,]*)\s*(?:USD|US\$|d[óo]lares)\b", re.IGNORECASE), r"S/. \1"),
+    # "US$300" / "$ 2,700" / "USD 300" -> "S/. 300"
+    (re.compile(r"(?:\bUSD|US\$|\$)\s*(?=\d)", re.IGNORECASE), "S/. "),
+    (re.compile(r"\bd[óo]lares\b", re.IGNORECASE), "soles"),
+    (re.compile(r"\bUSD\b", re.IGNORECASE), "soles"),
+    (re.compile(r"US\$|\$"), "S/."),
+)
+
+
+def _to_soles(text: str) -> str:
+    for pattern, replacement in _CURRENCY_FIXES:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def enforce_soles(proposal: CommercialProposal) -> tuple[CommercialProposal, tuple[str, ...]]:
+    """Rewrite any dollar amount or mention as Peruvian soles; report each change."""
+
+    findings: list[str] = []
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str):
+            fixed = _to_soles(value)
+            if fixed != value:
+                findings.append(f"{value!r} -> {fixed!r}")
+            return fixed
+        if isinstance(value, Mapping):
+            return {key: walk(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        return value
+
+    data = walk(proposal.model_dump())
+    if not findings:
+        return proposal, ()
+    return CommercialProposal.model_validate(data), tuple(findings)
+
+
 def create_commercial_synthesis_agent(
     model: Any,
     *,
@@ -166,7 +416,7 @@ def create_commercial_synthesis_agent(
         model,
         tools=list(tools or []),
         system_prompt=COMMERCIAL_SYNTHESIS_SYSTEM_PROMPT,
-        response_format=CommercialProposal,
+        response_format=CommercialSynthesis,
     )
 
 
@@ -193,8 +443,12 @@ def _provider_request(
     provider_name: str,
 ) -> dict[str, Any]:
     task_lines = "\n".join(
-        f"- [{task.category.value}] {task.description} ({task.estimated_hours}h)"
-        for task in draft.tasks
+        f"- #{number} [{task.category.value}] {task.description} ({task.estimated_hours}h)"
+        for number, task in enumerate(draft.tasks, start=1)
+    )
+    payment_lines = "\n".join(
+        f"- {PAYMENT_LABELS_ES.get(payment.label, payment.label)}: S/. {payment.amount:.2f}"
+        for payment in quote.payment_schedule.payments
     )
     data = "\n".join(
         (
@@ -207,7 +461,8 @@ def _provider_request(
             f"<technical_tasks>\n{task_lines}\n</technical_tasks>",
             f"<total_hours>\n{quote.effort.total_hours}\n</total_hours>",
             f"<calendar_days>\n{quote.effort.calendar_days}\n</calendar_days>",
-            f"<selected_amount>\n{quote.selected_amount}\n</selected_amount>",
+            f"<selected_amount>\nS/. {quote.selected_amount:.2f}\n</selected_amount>",
+            f"<payment_schedule>\n{payment_lines}\n</payment_schedule>",
             INPUT_DATA_END,
         )
     )
@@ -219,7 +474,7 @@ def _provider_request(
     }
 
 
-def _normalize_commercial_response(response: Any) -> CommercialProposal:
+def _normalize_commercial_response(response: Any) -> CommercialSynthesis:
     if not isinstance(response, Mapping) or "structured_response" not in response:
         raise CommercialSynthesisError("Provider response must include structured_response")
 
@@ -230,7 +485,7 @@ def _normalize_commercial_response(response: Any) -> CommercialProposal:
         raise CommercialSynthesisError("structured_response must be a Pydantic model or mapping")
 
     try:
-        return CommercialProposal.model_validate(structured_response)
+        return CommercialSynthesis.model_validate(structured_response)
     except ValidationError as exc:
         raise CommercialSynthesisError(f"Invalid structured commercial proposal: {exc}") from exc
 
@@ -253,17 +508,7 @@ def build_commercial_proposal_from_quote(
         or (draft.inferred_scope[0] if draft.inferred_scope else draft.original_request[:50])
     )
     total_hours = quote.effort.total_hours
-    calendar_days = quote.effort.calendar_days
-
-    # Format duration
-    weeks = calendar_days // 7
-    remaining_days = calendar_days % 7
-    duration_parts = []
-    if weeks > 0:
-        duration_parts.append(f"{weeks} {'semana' if weeks == 1 else 'semanas'}")
-    if remaining_days > 0 or not duration_parts:
-        duration_parts.append(f"{remaining_days} {'día' if remaining_days == 1 else 'días'}")
-    duration_text = f"{total_hours} horas / {' '.join(duration_parts)}"
+    duration_text = _duration_text(quote)
 
     # Task rows
     task_items: list[CommercialTaskItem] = []
@@ -281,12 +526,7 @@ def build_commercial_proposal_from_quote(
             descriptions = "; ".join(t.description for t in mod.tasks)
             components.append(CommercialComponent(title=mod.name, description=descriptions))
     else:
-        category_names = {
-            WorkCategory.PLANNING_AND_COORDINATION: "Planificación y Coordinación",
-            WorkCategory.BACKEND: "Desarrollo Backend y APIs",
-            WorkCategory.FRONTEND: "Desarrollo Frontend e Interfaz",
-            WorkCategory.DEVOPS: "Despliegue e Infraestructura",
-        }
+        category_names = CATEGORY_NAMES_ES
         for cat_est in quote.effort.categories:
             if cat_est.hours > 0:
                 name = category_names.get(cat_est.category, cat_est.category.value)
@@ -316,6 +556,11 @@ def build_commercial_proposal_from_quote(
                 cost=quote.selected_amount,
             )
         )
+
+    costs = allocate_costs([item.cost for item in task_items], quote.selected_amount + discount)
+    task_items = [
+        item.model_copy(update={"cost": cost}) for item, cost in zip(task_items, costs)
+    ]
 
     includes = [
         "Desarrollo e implementación según requerimientos aprobados",
@@ -369,7 +614,7 @@ def build_commercial_proposal_from_quote(
         ),
         budget_summary=CommercialBudget(
             estimated_duration=duration_text,
-            investment_summary=f"S/. {quote.selected_amount} PEN en total del proyecto",
+            investment_summary=_investment_text(quote),
             includes=includes,
             excludes=excludes,
         ),
@@ -418,4 +663,11 @@ def synthesize_commercial_proposal(
         provider_name=provider_name,
     )
     response = invocation(request_data)
-    return _normalize_commercial_response(response)
+    synthesis = _normalize_commercial_response(response)
+    return assemble_commercial_proposal(
+        synthesis,
+        approved_draft,
+        quote,
+        project_name=resolved_project,
+        provider_name=provider_name,
+    )

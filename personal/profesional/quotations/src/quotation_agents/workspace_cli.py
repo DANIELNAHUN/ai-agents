@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
@@ -446,18 +447,26 @@ def _generate_version(
 ) -> WorkspaceState:
     number = next_version_number(paths.output)
     version_dir = paths.output / f"v{number}"
-    version_dir.mkdir(parents=True)
-    _phase_generate(
-        state.draft,
-        quote,
-        version_dir,
-        options["language"],
-        models(),
-        options["project_name"] or state.name,
-        options["provider_name"],
-        progress,
-    )
-    write_snapshot(version_dir, state.draft, quote)
+    # Generate into a staging folder so a failure never leaves a half-written vN behind.
+    staging = paths.output / f".v{number}.partial"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        _phase_generate(
+            state.draft,
+            quote,
+            staging,
+            options["language"],
+            models(),
+            options["project_name"] or state.name,
+            options["provider_name"],
+            progress,
+        )
+        write_snapshot(staging, state.draft, quote)
+        staging.rename(version_dir)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     version = GeneratedVersion(
         number=number,
         created_at=now(),
@@ -613,6 +622,57 @@ def cmd_resume(
 
 
 # ---------------------------------------------------------------------------
+# regenerate
+# ---------------------------------------------------------------------------
+
+DOCUMENT_LANGUAGE = "es"
+
+
+def cmd_regenerate(
+    slug: str | None,
+    root: Path,
+    model_factory: ModelFactory,
+    *,
+    provider_name: str,
+    project_name: str | None,
+    now: Clock = _utc_now,
+) -> None:
+    """Rebuild the documents of a generated quotation from its saved quote, as a new version."""
+
+    slug = slug or _pick_slug(root)
+    try:
+        paths = open_workspace(root, slug)
+        state = load_state(paths.state)
+    except (WorkspaceError, StateError) as exc:
+        _fail(str(exc))
+    if state.phase is not Phase.GENERATED or state.draft is None or state.quote is None:
+        _fail(
+            f"Nothing to regenerate in '{slug}': it has no generated quotation yet. "
+            f"Run: uv run quotation resume {slug}"
+        )
+
+    options = {
+        "language": DOCUMENT_LANGUAGE,
+        "provider_name": provider_name,
+        "project_name": project_name,
+    }
+    try:
+        state = _generate_version(
+            paths, state, state.quote, model_factory, ProgressReporter(), now, options
+        )
+    except Exception as exc:
+        _fail(f"Regeneration failed, nothing was saved: {_describe_failure(exc)}")
+    version = state.versions[-1]
+    append_section(
+        paths.notes,
+        "Decided",
+        [f"Regenerated v{version.number} from the saved quote: S/ {version.total}."],
+    )
+    state = _save(paths, state, now)
+    _success(f"Quotation regenerated: {paths.root / version.path}")
+
+
+# ---------------------------------------------------------------------------
 # profile
 # ---------------------------------------------------------------------------
 
@@ -710,6 +770,21 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_document_names(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--provider-name",
+        default="Daniel Calcina",
+        metavar="NAME",
+        help="Provider name shown in commercial proposals (default: Daniel Calcina)",
+    )
+    parser.add_argument(
+        "--project-name",
+        default=None,
+        metavar="NAME",
+        help="Project name in the commercial proposal (default: the workspace name)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="quotation",
@@ -734,19 +809,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="es",
         help="Language for the internal proposal document (default: es)",
     )
-    resume.add_argument(
-        "--provider-name",
-        default="Daniel Calcina",
-        metavar="NAME",
-        help="Provider name shown in commercial proposals (default: Daniel Calcina)",
-    )
-    resume.add_argument(
-        "--project-name",
-        default=None,
-        metavar="NAME",
-        help="Project name in the commercial proposal (default: the workspace name)",
-    )
+    _add_document_names(resume)
     _add_common(resume)
+
+    regenerate = commands.add_parser(
+        "regenerate",
+        help="Rebuild the documents of a generated quotation with the current template",
+    )
+    regenerate.add_argument(
+        "slug", nargs="?", help="Workspace folder name (pick from a list if omitted)"
+    )
+    _add_document_names(regenerate)
+    _add_common(regenerate)
 
     profile = commands.add_parser("profile", help="Improve your base developer profile")
     _add_common(profile)
@@ -793,6 +867,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             root,
             models,
             language=args.language,
+            provider_name=args.provider_name,
+            project_name=args.project_name,
+        )
+    elif args.command == "regenerate":
+        cmd_regenerate(
+            args.slug,
+            root,
+            models,
             provider_name=args.provider_name,
             project_name=args.project_name,
         )
